@@ -40,6 +40,15 @@ install -m 600 "$stage/image.env" image.env
 if docker compose --env-file image.env up -d --wait --wait-timeout 100; then
     rm -f failed-release
     find backups -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf -- {} +
+    mapfile -t retained < <(find backups -mindepth 1 -maxdepth 1 -type d -name '20*' | sort -r)
+    for old in "${retained[@]:5}"; do rm -rf -- "$old"; done
+    previous=""
+    if [[ -f "$backup/image.env" ]]; then previous=$(cut -d= -f2- "$backup/image.env"); fi
+    while read -r old; do
+        if [[ $old =~ ^trendradar-pve:[a-f0-9]{40}$ && $old != "$ref" && $old != "$previous" ]]; then
+            docker image rm "$old" >/dev/null || true
+        fi
+    done < <(docker image ls trendradar-pve --format '{{.Repository}}:{{.Tag}}')
     echo "TrendRadar deployed $commit and passed the container health check"
 else
     docker compose --env-file image.env stop
