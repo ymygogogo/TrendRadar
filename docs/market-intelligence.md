@@ -78,3 +78,9 @@ CI 计算加密配置的 SHA-256 并直接调用 VM 109。更新器核对摘要�
 VM 109 的受限 SSH 入口使用 `status`、`image-artifact <SHA>` 和 `runtime-artifact <SHA256>` 子命令。以 root 安装 `read-artifact.py` 到 `/opt/trendradar/`，更新两份部署脚本、SSH 强制命令脚本和 sudoers。VM 108 继续与已有明利 runner 隔离，使用独立的注册状态与服务 `trendradar-private-ci-runner.service`。私有仓库的 `pve` 环境仅允许 `main`，保存部署 SSH 密钥、VM 公钥和运行配置所需 Secret。
 
 PVE 默认通过 `MARKET_FOCUSED_CRAWL` 仅拉取财经和政策配置里的热榜与 RSS。泛热榜和辅助资讯不发请求，财经媒体条目命中 `ignore_title_terms` 时在写入 SQLite 前跳过。官方政策源不受娱乐标题词过滤。已归档的原始数据保留，历史报告按当前启用的平台范围读取。
+
+## 交易日简报
+
+交易时段由 `market_intelligence.digest.trading_times` 配置，默认北京时间 08:30、11:35 和 15:30。容器使用现有 Supercronic 调度，在配置的分钟尝试，并在同一时段内重试。时段开始前已入库的有效分析结果可进入简报。08:30 使用最近 12 小时的事件，午间和收盘按前一交易简报时段后的进展选取，晚间 21:30 简报保持原有行为。
+
+交易日历来自上交所年度休市公告，维护于 `config/cn_trading_calendar.yaml`。补班周末仍休市。会在缺少已验证日历的年份跳过交易简报并写日志。跨年前根据交易所公告更新日历并随镜像部署。

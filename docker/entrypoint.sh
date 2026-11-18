@@ -22,6 +22,7 @@ case "${RUN_MODE:-cron}" in
 
     # 生成 crontab
     echo "$CRON_EXPR cd /app && python -m trendradar" > /tmp/crontab
+    python -m market_intelligence digest-cron >> /tmp/crontab
     
     echo "📅 生成的crontab内容:"
     cat /tmp/crontab

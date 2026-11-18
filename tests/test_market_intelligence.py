@@ -260,3 +260,30 @@ def test_market_crawl_filters_noisy_sources_and_entertainment_at_the_boundary(mo
     should_ignore = blocked_titles(config["MARKET_INTELLIGENCE"])
     assert should_ignore("方浩明在APEC用国产手机圈粉同行")
     assert not should_ignore("APEC公布数字贸易合作政策")
+
+
+def test_trading_digest_respects_exchange_closures_and_sends_once(tmp_path):
+    from datetime import timedelta
+
+    cfg = settings(tmp_path)
+    cfg["digest"] = {"trading_times": ["08:30", "11:35", "15:30"]}
+    clock = [NOW.replace(hour=11, minute=34)]
+    delivered = []
+    engine = MarketIntelligence(cfg, {}, FakeClient(), lambda _, body: delivered.append(body) or True,
+                                lambda: clock[0])
+    engine.run(data(article("chip controls", "https://bbc.example/notice", "bbc-world")),
+               diagnostics("bbc-world"))
+    assert not delivered
+    clock[0] += timedelta(minutes=1)
+    engine.dispatch_digest(trading_slot="11:35")
+    clock[0] += timedelta(minutes=5)
+    engine.dispatch_digest(trading_slot="11:35")
+    assert len(delivered) == 1
+    assert "11:35" in delivered[0]
+    clock[0] = NOW.replace(month=10, day=7, hour=11, minute=34)
+    engine.run(data(article("chip policy", "https://bbc.example/holiday", "bbc-world")),
+               diagnostics("bbc-world"))
+    clock[0] += timedelta(minutes=1)
+    engine.dispatch_digest(trading_slot="11:35")
+    assert len(delivered) == 1
+    engine.close()

@@ -236,6 +236,8 @@ market_intelligence:
     ignore_title_terms: ["圈粉", "饭圈", "粉丝应援", "明星红毯", "综艺花絮", "明星穿搭", "celebrity gossip", "red carpet look"]
   digest:
     times: ["21:30"]
+    trading_times: ["08:30", "11:35", "15:30"]
+    calendar_path: "config/cn_trading_calendar.yaml"
     max_events: 8
     include_p2: false
   max_article_age_days: 2

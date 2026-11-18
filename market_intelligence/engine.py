@@ -430,33 +430,54 @@ class MarketIntelligence:
                 if self._deliver(event["id"], event["revision"], channel, self._format(event), "A 股重大事件预警"):
                     sent += 1
 
-    def dispatch_digest(self):
-        policy, channels = self._policy()
+    def dispatch_digest(self, trading_slot=None):
+        _, channels = self._policy()
         if not channels:
             return
         now = self.now()
         config = self.settings.get("digest", {})
-        for time_text in config.get("times", ["21:30"]):
+        times = config.get("times", ["21:30"])
+        if trading_slot is not None:
+            from .trading_calendar import trading_day, trading_slots
+
+            if trading_slot not in trading_slots(self.settings):
+                raise ValueError("Unknown trading digest slot")
+            day = trading_day(now.date(), config.get("calendar_path", "config/cn_trading_calendar.yaml"))
+            if day is not True:
+                print(f"[A 股交易日简报] {now.date()} {'缺少已验证的交易日历' if day is None else '休市'}")
+                return
+            times = [trading_slot]
+        for time_text in times:
             hour, minute = map(int, time_text.split(":"))
             slot = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-            if not slot <= now < slot + timedelta(minutes=90):
+            window = 15 if trading_slot is not None else 90
+            if not slot <= now < slot + timedelta(minutes=window):
                 continue
             key = "digest:" + slot.isoformat()
+            cutoff = slot - timedelta(days=1)
+            if trading_slot is not None:
+                previous = [v for v in trading_slots(self.settings) if v < time_text]
+                if previous:
+                    prior_hour, prior_minute = map(int, previous[-1].split(":"))
+                    cutoff = slot.replace(hour=prior_hour, minute=prior_minute)
+                else:
+                    cutoff = slot - timedelta(hours=12)
             min_score = 0 if config.get("include_p2") else int(self.settings.get("event_analysis", {}).get("min_priority_score", 70))
             rows = self.db.execute("""SELECT * FROM events WHERE updated_at > ? AND updated_at <= ?
                 AND score >= ? AND (priority != 'P0' OR verification_status != 'confirmed')
                 ORDER BY score DESC, updated_at DESC LIMIT ?""",
-                ((slot - timedelta(days=1)).isoformat(), now.isoformat(), min_score, int(config.get("max_events", 8)))).fetchall()
+                (cutoff.isoformat(), now.isoformat(), min_score, int(config.get("max_events", 8)))).fetchall()
             if not rows:
                 print(f"[A 股简报] {slot.isoformat()} 暂无达标事件")
                 continue
-            lines = ["A 股事件简报 " + slot.strftime("%m-%d %H:%M")]
+            heading = "A 股交易日简报" if trading_slot is not None else "A 股事件简报"
+            lines = [heading + " " + slot.strftime("%m-%d %H:%M")]
             for event in rows:
                 source = self.db.execute("SELECT url FROM articles WHERE event_id=? LIMIT 1", (event["id"],)).fetchone()
                 lines.append(f"- {event['title_zh'][:70]}（{event['score']}分，{event['verification_status']}）" +
                              (f" [来源]({source[0]})" if source else ""))
             for channel in channels:
-                if self._deliver(key, 1, channel, "\n".join(lines), "A 股事件简报"):
+                if self._deliver(key, 1, channel, "\n".join(lines), heading):
                     print(f"[A 股简报] {slot.isoformat()} 已通过 {channel} 发送 {len(rows)} 条")
 
     def maintain(self):
