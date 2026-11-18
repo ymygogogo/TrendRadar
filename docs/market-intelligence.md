@@ -66,4 +66,5 @@ CI 计算加密配置的 SHA-256 并直接调用 VM 109。更新器核对摘要�
 - 在 VM 109 备份现有部署脚本。以 root 安装 `update.sh` 和 `runtime-update.sh` 到 `/opt/trendradar/`，权限 0700。将 `deploy-request.sh` 安装到 `/usr/local/libexec/trendradar-deploy-request`，权限 0755。用 `visudo -cf` 验证 `trendradar-deploy.sudoers` 后安装到 `/etc/sudoers.d/trendradar-deploy`，权限 0440。部署账号 `trendradar-deploy` 的家目录和 SSH 配置由 root 持有，授权公钥添加 `from="192.168.0.100",restrict,command="/usr/local/libexec/trendradar-deploy-request"`，可执行的请求只有指定 SHA 的镜像或指定摘要的配置。
 - 在 VM 108 备份并更新 TrendRadar runner 的 `ci-runner.sh`，检查它只额外放通到 `192.168.0.103:22`，再重启 TrendRadar 专用服务。外部 PR 继续使用托管 runner，并保留外部贡献者工作流审批。
 - 等 GitHub 创建作业后，暂停两个 VM 109 更新定时器，再用合并触发的镜像发布和手动触发的配置发布分别验收。对照 GitHub job 日志、VM 回执和容器健康，确认后执行 `systemctl disable --now trendradar-update.timer trendradar-runtime.timer`。验收失败先恢复原定时器。容器内半小时新闻任务独立运行。
+- Web 报告在 VM 109 的内网网卡开放 80 和 8080 端口。可以通过 `http://192.168.0.103:8080/` 访问，内网可访问 `http://tr.yumy.space/`。
 - Actions 显示排队且作业列表为空时，先查 GitHub 调度状态。发生持续 0 个 job 且取消返回 HTTP 409 时，记录运行链接并按 GitHub Actions 排障说明联系支持。
