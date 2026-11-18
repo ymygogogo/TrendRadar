@@ -6,16 +6,19 @@ on:
         description: Optional PVE runner label (blank uses trendradar-runtime-pve)
         type: string
         required: false
+  repository_dispatch:
+    types: [trendradar-runtime-deploy]
 permissions:
   contents: read
 concurrency:
-  group: trendradar-pve-runtime-v2
+  group: trendradar-pve-runtime-v3
   cancel-in-progress: false
 jobs:
   publish:
     if: >-
       github.repository == 'ymygogogo/TrendRadar' && github.ref == 'refs/heads/master' &&
-      (inputs.pve_runner_label == '' || startsWith(inputs.pve_runner_label, 'trendradar-runtime-'))
+      (github.event_name == 'repository_dispatch' || inputs.pve_runner_label == '' ||
+      startsWith(inputs.pve_runner_label, 'trendradar-runtime-'))
     runs-on: ${{ inputs.pve_runner_label || 'trendradar-runtime-pve' }}
     timeout-minutes: 8
     permissions:
