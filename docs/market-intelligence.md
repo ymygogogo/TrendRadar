@@ -95,7 +95,8 @@ PVE 配置将管理服务单独发布到 VM109 的 HTTPS 443 端口。管理页�
 
 ```text
 cd /opt/trendradar
-docker compose --env-file image.env run --rm --no-deps \
-  -v /opt/trendradar/admin-private:/app/admin-private \
-  --entrypoint python trendradar-admin -m market_intelligence.admin set-password
+image=$(sed -n 's/^TREND_IMAGE=//p' image.env)
+docker run --rm -it --user 10001:10001 \
+  -v "$PWD/admin-private:/app/admin-private" \
+  --entrypoint python "$image" -m market_intelligence.admin set-password
 ```
