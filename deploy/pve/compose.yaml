@@ -10,6 +10,8 @@ services:
       RUN_MODE: cron
       IMMEDIATE_RUN: "false"
       MARKET_ENABLED: "true"
+      AI_ANALYSIS_ENABLED: "false"
+      AI_TRANSLATION_ENABLED: "false"
       LOCAL_RETENTION_DAYS: "30"
     volumes:
       - ./output:/app/output
