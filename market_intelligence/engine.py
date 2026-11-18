@@ -267,8 +267,12 @@ class MarketIntelligence:
                 if not 0 <= minimum < urgent <= 100:
                     raise ValueError("invalid priority thresholds")
                 priority = "P0" if score >= urgent else ("P1" if score >= minimum else "P2")
-                source = self.db.execute("SELECT category FROM feed_health WHERE feed_id=?", (article["feed_id"],)).fetchone()
-                official = source and source["category"] in {"domestic_official", "international_official"}
+                source = self.db.execute("SELECT category, url FROM feed_health WHERE feed_id=?", (article["feed_id"],)).fetchone()
+                official = (
+                    source
+                    and source["category"] in {"domestic_official", "international_official"}
+                    and urlsplit(source["url"]).hostname == urlsplit(article["url"]).hostname
+                )
                 prior = self.db.execute("SELECT * FROM events WHERE id=?", (event_id,)).fetchone()
                 confirmed = bool(official and reported_is_fresh(article["published_at"], self.now()) and result["verification_status"] == "confirmed" and result["confidence"] >= float(thresholds.get("confirmation_min_confidence", 0.8)))
                 if prior and not result["material_update"] and prior["verification_status"] == "confirmed":

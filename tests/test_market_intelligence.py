@@ -25,7 +25,7 @@ def data(*items):
 
 
 def diagnostics(*feeds):
-    return {feed: {"name": feed, "url": f"https://example.com/{feed}",
+    return {feed: {"name": feed, "url": f"https://{'sec.example' if feed == 'sec-press' else 'official.example'}/{feed}",
             "success": True, "duration_ms": 25, "latest_published_at":
             "2026-11-18T01:00:00Z", "error": ""} for feed in feeds}
 
