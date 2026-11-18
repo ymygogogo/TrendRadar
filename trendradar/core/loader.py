@@ -589,6 +589,15 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
         override = _get_env_int_or_none(f"MARKET_{limit.upper()}")
         if override is not None and override >= 0:
             market[limit] = override
+    focus_override = _get_env_bool("MARKET_FOCUSED_CRAWL")
+    crawl_filter = market.setdefault("crawl_filter", {})
+    if focus_override is not None:
+        crawl_filter["enabled"] = focus_override
+    if market.get("enabled") and crawl_filter.get("enabled"):
+        wanted_platforms = set(market.get("domestic_platforms", []))
+        wanted_categories = set(crawl_filter.get("rss_categories", []))
+        config["PLATFORMS"] = [platform for platform in config["PLATFORMS"] if platform["id"] in wanted_platforms]
+        config["RSS"]["FEEDS"] = [feed for feed in config["RSS"]["FEEDS"] if feed.get("category") in wanted_categories]
     config["MARKET_INTELLIGENCE"] = market
 
     # AI 模型共享配置

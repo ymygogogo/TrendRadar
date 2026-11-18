@@ -6,6 +6,8 @@ cd /opt/trendradar
 # Keep retries from holding the lock shared with the image updater.
 exec 8>runtime-download.lock
 requested=${1:-}
+transport=${2:-release}
+[[ $# -le 2 && ( $transport == release || $transport == stdin ) ]] || exit 2
 if [[ -n $requested ]]; then
     [[ $requested =~ ^[a-f0-9]{64}$ ]] || exit 2
     flock -w 120 8
@@ -15,13 +17,18 @@ fi
 stage=$(mktemp -d "$PWD/.runtime-update.XXXXXX")
 trap 'rm -rf "$stage"' EXIT
 
-url=https://github.com/ymygogogo/TrendRadar/releases/download/pve-runtime/runtime.env.enc
-status=$(curl -sSL --connect-timeout 8 --retry 1 --retry-max-time 25 --max-time 20 --max-filesize 16384     -o "$stage/envelope" -w '%{http_code}' "$url")
-case "$status" in
-    200) ;;
-    404) [[ -z $requested ]]; exit 0 ;;
-    *) printf 'Runtime release unavailable (HTTP %s)\n' "$status" >&2; exit 1 ;;
-esac
+if [[ $transport == stdin ]]; then
+    head -c 16385 > "$stage/envelope"
+    [[ $(wc -c < "$stage/envelope") -le 16384 ]]
+else
+    url=https://github.com/ymygogogo/TrendRadar/releases/download/pve-runtime/runtime.env.enc
+    status=$(curl -sSL --connect-timeout 8 --retry 1 --retry-max-time 25 --max-time 20 --max-filesize 16384     -o "$stage/envelope" -w '%{http_code}' "$url")
+    case "$status" in
+        200) ;;
+        404) [[ -z $requested ]]; exit 0 ;;
+        *) printf 'Runtime release unavailable (HTTP %s)\n' "$status" >&2; exit 1 ;;
+    esac
+fi
 digest=$(sha256sum "$stage/envelope" | cut -d' ' -f1)
 if [[ -n $requested && $digest != "$requested" ]]; then
     echo "Published runtime configuration does not match this CI run" >&2

@@ -967,6 +967,12 @@ class NewsAnalyzer:
             ids, self.request_interval, domain_rules=domain_rules
         )
 
+        from market_intelligence.crawl_filter import blocked_titles
+
+        is_blocked = blocked_titles(self.ctx.config.get("MARKET_INTELLIGENCE", {}))
+        results = {feed_id: {title: values for title, values in titles.items() if not is_blocked(title)}
+                   for feed_id, titles in results.items()}
+
         # 转换为 NewsData 格式并保存到存储后端
         crawl_time = self.ctx.format_time()
         crawl_date = self.ctx.format_date()
@@ -1070,9 +1076,14 @@ class NewsAnalyzer:
             # 抓取数据
             rss_data = fetcher.fetch_all()
 
-            self._market_rss = (rss_data, fetcher.health, {
-                feed["id"]: feed.get("category", "media") for feed in rss_feeds if feed.get("id")
-            })
+            categories = {feed["id"]: feed.get("category", "media") for feed in rss_feeds if feed.get("id")}
+            from market_intelligence.crawl_filter import blocked_titles
+
+            is_blocked = blocked_titles(self.ctx.config.get("MARKET_INTELLIGENCE", {}))
+            for feed_id, articles in rss_data.items.items():
+                if not categories.get(feed_id, "").endswith("_official"):
+                    rss_data.items[feed_id] = [item for item in articles if not is_blocked(item.title)]
+            self._market_rss = (rss_data, fetcher.health, categories)
 
             self._rss_source_total = len(feeds)
             self._rss_source_failed = len(rss_data.failed_ids)

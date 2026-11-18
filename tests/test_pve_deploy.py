@@ -100,3 +100,31 @@ def test_runtime_request_fails_on_wrong_or_missing_artifact(updater, tmp_path, s
     retried = run("runtime-update.sh", "a" * 64, STATUS=str(status))
     assert retried.returncode != 0
     assert not (tmp_path / "runtime.applied").exists()
+
+
+@pytest.mark.parametrize("invalid_member", [None, "../escape", "link", "duplicate", "extension"])
+def test_private_image_stream_only_accepts_fixed_regular_files(tmp_path, invalid_member):
+    import io
+    import sys
+    import tarfile
+
+    archive = io.BytesIO()
+    with tarfile.open(fileobj=archive, mode="w", format=tarfile.USTAR_FORMAT) as stream:
+        if invalid_member:
+            name = "compose.yaml" if invalid_member in ("duplicate", "link") else invalid_member
+            member = tarfile.TarInfo(name)
+            if invalid_member == "link":
+                member.type = tarfile.SYMTYPE
+                member.linkname = "../escape"
+            if invalid_member == "extension":
+                member.type = tarfile.XHDTYPE
+            stream.addfile(member, io.BytesIO())
+        for name in ("compose.yaml", "SHA256SUMS", "IMAGE_ID", "trendradar-image.tar.gz"):
+            member = tarfile.TarInfo(name)
+            member.size = 2
+            stream.addfile(member, io.BytesIO(b"ok"))
+    result = subprocess.run([sys.executable, str(SCRIPTS / "read-artifact.py"), str(tmp_path)],
+                            input=archive.getvalue(), capture_output=True, timeout=10)
+    assert (result.returncode == 0) == (invalid_member is None)
+    if invalid_member is None:
+        assert len(list(tmp_path.iterdir())) == 4

@@ -242,3 +242,21 @@ def test_new_articles_and_backlog_share_a_bounded_batch(tmp_path):
     assert len(client.articles) == 7
     assert engine.db.execute("SELECT count(*) FROM articles WHERE analysis_state='pending'").fetchone()[0] == 0
     engine.close()
+
+
+def test_market_crawl_filters_noisy_sources_and_entertainment_at_the_boundary(monkeypatch):
+    from market_intelligence.crawl_filter import blocked_titles
+    from trendradar.core import load_config
+
+    monkeypatch.setenv("MARKET_ENABLED", "true")
+    monkeypatch.setenv("MARKET_FOCUSED_CRAWL", "true")
+    config = load_config()
+    platform_ids = {platform["id"] for platform in config["PLATFORMS"]}
+    rss_ids = {feed["id"] for feed in config["RSS"]["FEEDS"]}
+    assert {"weibo", "douyin", "baidu"}.isdisjoint(platform_ids)
+    assert {"wallstreetcn-hot", "cls-hot"} <= platform_ids
+    assert {"bbc-world", "federal-reserve", "nbs-releases", "yahoo-finance"} <= rss_ids
+    assert "hacker-news" not in rss_ids
+    should_ignore = blocked_titles(config["MARKET_INTELLIGENCE"])
+    assert should_ignore("方浩明在APEC用国产手机圈粉同行")
+    assert not should_ignore("APEC公布数字贸易合作政策")

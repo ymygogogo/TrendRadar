@@ -70,3 +70,11 @@ CI 计算加密配置的 SHA-256 并直接调用 VM 109。更新器核对摘要�
 - 等 GitHub 创建作业后，暂停两个 VM 109 更新定时器，再用合并触发的镜像发布和手动触发的配置发布分别验收。对照 GitHub job 日志、VM 回执和容器健康，确认后执行 `systemctl disable --now trendradar-update.timer trendradar-runtime.timer`。验收失败先恢复原定时器。容器内半小时新闻任务独立运行。
 - Web 报告在 VM 109 的内网网卡开放 80 和 8080 端口。可以通过 `http://192.168.0.103:8080/` 访问，内网可访问 `http://tr.yumy.space/`。
 - Actions 显示排队且作业列表为空时，先查 GitHub 调度状态。发生持续 0 个 job 且取消返回 HTTP 409 时，记录运行链接并按 GitHub Actions 排障说明联系支持。
+
+## 私有部署仓库
+
+源码和 PR 保留在公开 fork。私有仓库 `ymygogogo/trendradar-ci` 按计划或手动检查源码 `master` 的提交。目标 SHA 已运行时跳过构建。否则托管 runner 用该 SHA 构建、测试并生成 Actions 制品，VM 108 的 `trendradar-private-pve` runner 从私有 workflow 下载制品并经受限 SSH 发送到 VM 109。部署 job 核对 VM 实际运行 SHA。配置 workflow 单独将加密后的配置经 SSH 送入 VM 109，每次核对密文摘要与容器健康。正式切换后，两条轮询定时器可以关闭。
+
+VM 109 的受限 SSH 入口使用 `status`、`image-artifact <SHA>` 和 `runtime-artifact <SHA256>` 子命令。以 root 安装 `read-artifact.py` 到 `/opt/trendradar/`，更新两份部署脚本、SSH 强制命令脚本和 sudoers。VM 108 继续与已有明利 runner 隔离，使用独立的注册状态与服务 `trendradar-private-ci-runner.service`。私有仓库的 `pve` 环境仅允许 `main`，保存部署 SSH 密钥、VM 公钥和运行配置所需 Secret。
+
+PVE 默认通过 `MARKET_FOCUSED_CRAWL` 仅拉取财经和政策配置里的热榜与 RSS。泛热榜和辅助资讯不发请求，财经媒体条目命中 `ignore_title_terms` 时在写入 SQLite 前跳过。官方政策源不受娱乐标题词过滤。已归档的原始数据保留，历史报告按当前启用的平台范围读取。
