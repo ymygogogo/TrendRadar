@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 import tempfile
 
+from .digests import MAX_EVENTS, MIN_EVENTS
+
 
 SCORE_FIELDS = {"min_priority_score", "urgent_priority_score"}
 BUDGET_FIELDS = {"max_articles_per_run", "max_articles_per_day"}
@@ -21,8 +23,8 @@ def validate(values, base):
         if key not in values:
             continue
         value = values[key]
-        limit = 100 if key in SCORE_FIELDS else 20 if key == "max_digest_events" else 10000
-        minimum = 1 if key == "max_digest_events" else 0
+        limit = 100 if key in SCORE_FIELDS else MAX_EVENTS if key == "max_digest_events" else 10000
+        minimum = MIN_EVENTS if key == "max_digest_events" else 0
         if type(value) is not int or not minimum <= value <= limit:
             raise ValueError(f"{key} 必须是 {minimum} 至 {limit} 范围内的整数")
     defaults = base.get("event_analysis", {})
@@ -45,6 +47,9 @@ def read(path, base):
             config = json.load(handle)
     except FileNotFoundError:
         return {}
+    if isinstance(config, dict) and type(config.get("max_digest_events")) is int and 1 <= config["max_digest_events"] < MIN_EVENTS:
+        # Upgrade the former 1–7 range without discarding other operator overrides.
+        config["max_digest_events"] = MIN_EVENTS
     return validate(config, base)
 
 

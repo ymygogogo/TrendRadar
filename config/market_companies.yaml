@@ -20,3 +20,18 @@ companies:
     sectors: [动力电池, 储能电池, 锂离子电池]
     business: 研发和生产动力电池及储能电池。
     source: https://www.catl.com/uploads/1/file/public/202010/20201015093533_puhbensuaf.pdf
+  - code: 601857.SH
+    name: 中国石油
+    sectors: [油气开采, 石油开采, 天然气开采, 油气勘探开发, 天然气销售, 炼油]
+    business: 开展油气勘探开发、原油炼制及天然气销售业务。
+    source: https://www.petrochina.com.cn/petrochina/gsgg/202103/8fa9b24458cf4b7d8bed092bc6558994/files/b85ba95a9a154010bcc88f1e22b74825.pdf
+  - code: 601899.SH
+    name: 紫金矿业
+    sectors: [铜矿, 黄金开采, 铜矿开采, 金矿开采, 黄金矿业, 铜冶炼]
+    business: 开展铜、金等金属矿产资源勘查、开发及冶炼。
+    source: https://www.zjky.cn/about/about_us.htm
+  - code: 600030.SH
+    name: 中信证券
+    sectors: [券商, 证券经纪, 证券行业, 证券投行, 证券融资融券]
+    business: 开展证券经纪、投资银行、融资融券及资产管理业务。
+    source: https://statics.citics.com/website/report/2026/web/e-book/web/index.html

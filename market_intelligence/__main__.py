@@ -89,12 +89,57 @@ def trading_command(command, slot):
     return 0
 
 
+def brief_now(send, publish_preview):
+    from datetime import timedelta
+    from uuid import uuid4
+
+    from . import digests
+    from .engine import MarketIntelligence
+
+    with redirect_stdout(sys.stderr):
+        from trendradar.core import load_config
+
+        config = load_config()
+    engine = MarketIntelligence(config["MARKET_INTELLIGENCE"], config)
+    try:
+        now = engine.now()
+        key = "digest-manual:" + uuid4().hex
+        edition = digests.make_edition(engine, key, now, now - timedelta(hours=24),
+                                       "即时热点新闻简报", closing=True)
+        origin = os.environ.get("MARKET_DIGEST_BASE_URL", "")
+        if send or publish_preview:
+            if not origin or not os.environ.get("MARKET_STATUS_PATH"):
+                raise SystemExit("Set MARKET_DIGEST_BASE_URL and MARKET_STATUS_PATH first")
+        if send:
+            wework = engine.notification_status()["wework"]
+            if not (wework["enabled"] and wework["configured"]):
+                raise SystemExit("WeCom is disabled or missing credentials")
+            with redirect_stdout(sys.stderr):
+                delivered = engine.send_digest_edition(key, edition, ["wework"])
+            if not delivered:
+                return 1
+        elif publish_preview:
+            edition = digests.freeze_edition(engine.db, key, edition)
+            digests.archive_edition(os.environ["MARKET_STATUS_PATH"], edition)
+        print(digests.digest_message(edition, origin if send or publish_preview else ""))
+        return 0
+    finally:
+        engine.close()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["check-sources", "health", "digest-cron", "trading-digest", "weekly-calendar", "market-close"])
+    parser.add_argument("command", choices=["check-sources", "health", "digest-cron", "trading-digest", "weekly-calendar", "market-close", "brief-now"])
     parser.add_argument("--database", default="output/market_intelligence.db")
     parser.add_argument("--slot", help="Configured trading digest time in HH:MM")
+    delivery = parser.add_mutually_exclusive_group()
+    delivery.add_argument("--send", action="store_true", help="Send one immediate brief to WeCom")
+    delivery.add_argument("--publish-preview", action="store_true", help="Publish a protected preview without sending")
     args = parser.parse_args()
+    if args.command == "brief-now":
+        return brief_now(args.send, args.publish_preview)
+    if args.send or args.publish_preview:
+        parser.error("--send and --publish-preview require brief-now")
     if args.command == "trading-digest" and args.slot is None:
         parser.error("trading-digest requires --slot")
     if args.command in {"digest-cron", "trading-digest", "weekly-calendar", "market-close"}:

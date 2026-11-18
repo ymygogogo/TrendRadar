@@ -15,8 +15,8 @@ import ssl
 import threading
 from urllib.parse import parse_qs
 
-from . import operator_settings, status
-from .admin_view import render_dashboard
+from . import digests, operator_settings, status
+from .admin_view import render_dashboard, render_digest
 
 
 FIELDS = (
@@ -24,10 +24,17 @@ FIELDS = (
     ("urgent_priority_score", "即时预警最低分"),
     ("max_articles_per_run", "每轮分析上限"),
     ("max_articles_per_day", "每日分析上限"),
-    ("max_digest_events", "每份简报条数"),
+    ("max_digest_events", "每份简报上限（8～20）"),
 )
 ITERATIONS = 300_000
 MAX_FORM_BYTES = 12_288
+ADMIN_CSP = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'"
+REPORT_CSP = (
+    "default-src 'none'; base-uri 'none'; style-src 'unsafe-inline'; "
+    "script-src 'unsafe-inline' https://cdnjs.cloudflare.com; img-src data: blob:; "
+    "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads; frame-ancestors 'none'"
+)
+REPORT_NAMES = ("current.html", "daily.html", "incremental.html")
 
 
 def password_hash(password, salt):
@@ -57,7 +64,7 @@ def visible_values(settings):
         "urgent_priority_score": analysis.get("urgent_priority_score", 85),
         "max_articles_per_run": settings.get("max_articles_per_run", 12),
         "max_articles_per_day": settings.get("max_articles_per_day", 250),
-        "max_digest_events": settings.get("digest", {}).get("max_events", 8),
+        "max_digest_events": digests.event_limit(settings.get("digest", {}).get("max_events", 8)),
         "ignore_title_terms": settings.get("crawl_filter", {}).get("ignore_title_terms", []),
     }
 
@@ -69,12 +76,13 @@ def render(settings, token, message="", snapshot=None):
 class AdminServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, address, base, settings_path, password_path, origin, status_path=None):
+    def __init__(self, address, base, settings_path, password_path, origin, status_path=None, report_dir=None):
         self.base = base
         self.settings_path = settings_path
         self.password_path = password_path
         self.origin = origin
         self.status_path = status_path
+        self.report_dir = Path(report_dir) if report_dir else None
         self.token = secrets.token_urlsafe(32)
         self.save_lock = threading.Lock()
         super().__init__(address, AdminRequest)
@@ -88,13 +96,13 @@ class AdminRequest(BaseHTTPRequestHandler):
         self.request.settimeout(15)
         super().setup()
 
-    def reply(self, code, body=b"", authenticate=False, content_type="text/html; charset=utf-8"):
+    def reply(self, code, body=b"", authenticate=False, content_type="text/html; charset=utf-8", csp=ADMIN_CSP):
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'")
+        self.send_header("Content-Security-Policy", csp)
         if authenticate:
             self.send_header("WWW-Authenticate", 'Basic realm="TrendRadar", charset="UTF-8"')
         self.end_headers()
@@ -114,8 +122,33 @@ class AdminRequest(BaseHTTPRequestHandler):
         self.reply(401, authenticate=True)
         return False
 
+    def show_news(self):
+        folder = self.server.report_dir
+        if folder is None:
+            self.reply(404)
+            return
+        reports = [folder / name for name in REPORT_NAMES if (folder / name).is_file()]
+        try:
+            newest = max(reports, key=lambda path: path.stat().st_mtime_ns)
+            content = newest.read_bytes()
+        except (OSError, ValueError):
+            self.reply(503, "等待采集生成新闻报告。".encode(), content_type="text/plain; charset=utf-8")
+        else:
+            self.reply(200, content, csp=REPORT_CSP)
+
     def do_GET(self):
-        if self.path not in ("/admin/", "/admin/metrics"):
+        if self.path in ("/", "/news/"):
+            self.show_news()
+            return
+        digest_prefix = "/admin/digests/"
+        if self.path.startswith(digest_prefix):
+            if self.authorized():
+                edition = digests.read_edition(self.server.status_path, self.path.removeprefix(digest_prefix))
+                if edition is None:
+                    self.reply(404)
+                else:
+                    self.reply(200, render_digest(edition))
+        elif self.path not in ("/admin/", "/admin/metrics"):
             self.reply(404)
         elif self.authorized():
             snapshot = status.read(self.server.status_path)
@@ -171,7 +204,7 @@ def main():
     base = load_config()["MARKET_INTELLIGENCE"]
     status_path = os.environ.get("MARKET_STATUS_PATH")
     server = AdminServer(("0.0.0.0", 8443), base, state / "settings.json", password_path,
-                         "https://tr.yumy.space", status_path)
+                         "https://tr.yumy.space", status_path, os.environ.get("MARKET_REPORT_DIR"))
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.load_cert_chain(private / "fullchain.pem", private / "privkey.pem")

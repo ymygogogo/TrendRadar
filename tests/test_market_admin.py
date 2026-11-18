@@ -5,6 +5,7 @@ import threading
 from urllib.parse import urlencode
 
 from market_intelligence.admin import AdminServer, password_hash
+from market_intelligence.digests import archive_edition
 
 
 def test_admin_requires_login_and_origin_and_persists_valid_form(tmp_path):
@@ -20,7 +21,18 @@ def test_admin_requires_login_and_origin_and_persists_valid_form(tmp_path):
     snapshot.write_text(json.dumps({"updated_timestamp": 1, "updated_at": "2026-11-18T16:30:00+08:00",
                                     "articles": {"pending": 42}, "events": {}, "deliveries": {},
                                     "analysis_attempts": 50, "sources": []}))
-    server = AdminServer(("127.0.0.1", 0), {}, state, credential, "https://tr.yumy.space", snapshot)
+    edition_id = "a" * 24
+    archive_edition(snapshot, {
+        "id": edition_id, "title": "A 股即时简报", "target": 8, "created_at": "2026-11-18T16:30:00+08:00",
+        "events": [{"tier": "watch", "title": "<script>事件标题</script>", "summary": "事件摘要", "priority": "P2",
+                    "score": 68, "verification": "unverified", "reported_at": "2026-11-18T16:00:00+08:00",
+                    "source": "javascript:alert(1)", "direction": "unclear", "impact": "", "sectors": [],
+                    "companies": [], "concepts": ["油气"]}],
+    })
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    (reports / "current.html").write_text("<h1>当前新闻报告</h1>")
+    server = AdminServer(("127.0.0.1", 0), {}, state, credential, "https://tr.yumy.space", snapshot, reports)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     auth = "Basic " + base64.b64encode(f"admin:{password}".encode()).decode()
@@ -34,10 +46,20 @@ def test_admin_requires_login_and_origin_and_persists_valid_form(tmp_path):
             return result
 
         assert request("GET")[0] == 401
+        for entry in ("/", "/news/"):
+            assert request("GET", route=entry) == (200, "<h1>当前新闻报告</h1>")
+        assert request("GET", route="/news/current.html")[0] == 404
         assert request("GET", headers={"Authorization": "Basic !!!"})[0] == 401
         status, document = request("GET", headers={"Authorization": auth})
         assert status == 200
         assert "待分析 42 篇" in document
+        assert 'href="/news/"' in document
+        detail = "/admin/digests/" + edition_id
+        assert request("GET", route=detail)[0] == 401
+        code, article = request("GET", headers={"Authorization": auth}, route=detail)
+        assert code == 200 and "相关概念与板块" in article and "暂无已核实的相关股票" in article
+        assert "&lt;script&gt;事件标题&lt;/script&gt;" in article and "javascript:alert(1)" not in article
+        assert request("GET", headers={"Authorization": auth}, route="/admin/digests/" + "b" * 24)[0] == 404
         assert request("GET", route="/admin/metrics")[0] == 401
         assert 'trendradar_articles{state="pending"} 42' in request(
             "GET", headers={"Authorization": auth}, route="/admin/metrics")[1]
@@ -45,7 +67,7 @@ def test_admin_requires_login_and_origin_and_persists_valid_form(tmp_path):
         data = {
             "token": token, "min_priority_score": 75, "urgent_priority_score": 90,
             "max_articles_per_run": 24, "max_articles_per_day": 250,
-            "max_digest_events": 6, "ignore_title_terms": "圈粉\n饭圈",
+            "max_digest_events": 8, "ignore_title_terms": "圈粉\n饭圈",
         }
         assert request("POST", urlencode(data), {"Authorization": auth, "Origin": "https://example.com"})[0] == 403
         assert not state.exists()
