@@ -131,3 +131,44 @@ def test_daily_ai_budget_and_hotlist(tmp_path):
     assert e.db.execute("SELECT count(*) FROM analysis_attempts").fetchone()[0] == 1
     assert e.db.execute("SELECT count(*) FROM articles").fetchone()[0] == 2
     e.close()
+
+
+def test_material_update_respects_cooldown_then_dispatches(tmp_path):
+    from datetime import timedelta
+
+    class UpdatedClient(FakeClient):
+        def chat(self, messages, **kwargs):
+            obj = json.loads(super().chat(messages, **kwargs))
+            obj["material_update"] = "changed" in obj["summary_zh"]
+            return json.dumps(obj)
+
+    clock = [NOW]
+    sends = []
+    e = MarketIntelligence(settings(tmp_path), {}, UpdatedClient(),
+                           lambda channel, body: sends.append(body) or True, lambda: clock[0])
+    official = {"sec-press": "international_official"}
+    e.run(data(article("Chip restrictions", "https://sec.example/a", "sec-press")),
+          diagnostics("sec-press"), official)
+    e.run(data(article("Chip restrictions changed", "https://sec.example/b", "sec-press")),
+          diagnostics("sec-press"), official)
+    assert len(sends) == 1
+    assert e.db.execute("SELECT count(*) FROM event_versions").fetchone()[0] == 2
+    clock[0] += timedelta(minutes=61)
+    e.dispatch_urgent()
+    assert len(sends) == 2
+    e.close()
+
+
+def test_official_index_only_accepts_matching_same_host_article_links():
+    from trendradar.crawler.rss.links import parse_article_index
+
+    html = """
+      <a href="/news/t20261118_100.html"><span>重点政策</span>发布</a>
+      <a href="/news/t20261118_100.html">重复标题</a>
+      <a href="https://different.test/news/t20261118_100.html">站外新闻标题</a>
+      <a href="/news/index.html">普通索引页面</a>
+    """
+    items = parse_article_index(html, "https://official.test/news/", r"/news/t[0-9]{8}_[0-9]+\.html$")
+    assert [(item.title, item.url, item.published_at) for item in items] == [
+        ("重点政策发布", "https://official.test/news/t20261118_100.html", None)
+    ]
