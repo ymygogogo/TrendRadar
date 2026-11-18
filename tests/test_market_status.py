@@ -24,3 +24,51 @@ def test_market_metrics_are_operational_counters_without_news_or_secret_values(t
         assert read(tmp_path / "missing.json") is None
     finally:
         engine.close()
+
+
+def test_admin_snapshot_displays_recent_events_and_channel_health_without_credentials(tmp_path, monkeypatch):
+    from market_intelligence.admin import render, visible_values
+
+    monkeypatch.setenv("MARKET_WEWORK_WEBHOOK_URL", "https://example.invalid/?key=wework-private")
+    engine = MarketIntelligence({
+        "database_path": str(tmp_path / "market.db"),
+        "notification": {"enabled": True, "channels": ["wework", "telegram"]},
+    }, {"TELEGRAM_BOT_TOKEN": "telegram-private"})
+    try:
+        now = datetime(2026, 11, 18, 8, 0, tzinfo=timezone.utc)
+        engine.record_health({"sse": {
+            "name": "上交所", "url": "https://example.invalid/?key=feed-private", "success": False,
+            "duration_ms": 250, "latest_published_at": "", "error": "feed-error-private",
+        }}, {"sse": "domestic_official"})
+        engine.db.executemany(
+            """INSERT INTO events(id,title_zh,summary_zh,analysis_json,score,priority,verification_status,
+                                  latest_reported_at,updated_at) VALUES (?,?,?,'{}',?,?,?,?,?)""",
+            [
+                ("a", "<script>重点事件</script>", "摘要", 90, "P0", "unverified",
+                 "2026-11-18T15:50:00+08:00", now.isoformat()),
+                ("b", "旧报道", "旧摘要", 87, "P0", "confirmed", "2026-11-16T19:03:00-05:00", now.isoformat()),
+                ("c", "普通资讯", "摘要", 59, "P2", "unverified", now.isoformat(), now.isoformat()),
+            ],
+        )
+        engine.db.executemany(
+            """INSERT INTO deliveries(event_id,revision,channel,state,attempts,updated_at,error)
+               VALUES ('a',?,'wework',?,1,?,'dispatch-error-private')""",
+            [(1, "delivered", "2026-11-18T15:00:00+08:00"), (2, "failed", "2026-11-18T16:00:00+08:00")],
+        )
+        path = tmp_path / "status.json"
+        publish(path, engine.db, now, engine.notification_status())
+        current = read(path)
+        channels = current["notification_channels"]
+        assert channels["wework"]["latest"] == ["failed", "2026-11-18T16:00:00+08:00"]
+        assert channels["wework"]["counts"] == {"delivered": 1, "failed": 1}
+        assert channels["telegram"]["enabled"] and not channels["telegram"]["configured"]
+        assert "private" not in path.read_text()
+        assert "重点事件" not in metrics(current).decode()
+        html = render(visible_values({}), "test-token", snapshot=current).decode()
+        for label in ("当前汇总", "采集渠道", "推送渠道", "企业微信", "待配置", "连续失败 1 次",
+                      "待核实", "16:00", "&lt;script&gt;重点事件&lt;/script&gt;"):
+            assert label in html
+        for omitted in ("<script>", "旧报道", "普通资讯", "private"):
+            assert omitted not in html
+    finally:
+        engine.close()

@@ -1,11 +1,13 @@
-"""Publish operational counters without exposing the underlying SQLite file."""
+"""Publish a dashboard snapshot and expose its operational metrics."""
+from datetime import timedelta
 import json
+import logging
 import os
 from pathlib import Path
 import tempfile
 
 
-def snapshot(db, now):
+def snapshot(db, now, channels=None):
     status = {"updated_at": now.isoformat(), "updated_timestamp": int(now.timestamp())}
     for key, query in (
         ("articles", "SELECT analysis_state,count(*) FROM articles GROUP BY 1"),
@@ -16,19 +18,54 @@ def snapshot(db, now):
     status["analysis_attempts"] = db.execute("SELECT count(*) FROM analysis_attempts").fetchone()[0]
     status["sources"] = [list(row) for row in db.execute(
         "SELECT feed_id,attempts,successes,consecutive_failures,duration_ms FROM feed_health ORDER BY feed_id")]
+    status["source_details"] = [list(row) for row in db.execute(
+        """SELECT feed_id,name,category,last_attempt,last_success,latest_published_at
+        FROM feed_health ORDER BY feed_id""")]
+    status["recent_events"] = [list(row) for row in db.execute(
+        """SELECT title_zh,substr(summary_zh,1,240),priority,score,verification_status,latest_reported_at
+        FROM events WHERE priority IN ('P0','P1')
+            AND julianday(latest_reported_at) BETWEEN julianday(?) AND julianday(?)
+        ORDER BY priority, score DESC, julianday(latest_reported_at) DESC, id LIMIT 8""",
+        ((now - timedelta(hours=24)).isoformat(), now.isoformat()))]
+    deliveries = {}
+    for channel, state, count in db.execute("SELECT channel,state,count(*) FROM deliveries GROUP BY 1,2"):
+        deliveries.setdefault(channel, {})[state] = count
+    last_deliveries = {
+        channel: [state, stamp] for channel, state, stamp in db.execute(
+            """SELECT channel,state,updated_at FROM (
+                SELECT channel,state,updated_at,row_number() OVER (
+                    PARTITION BY channel ORDER BY updated_at DESC, rowid DESC) AS position
+                FROM deliveries
+            ) WHERE position = 1""")
+    }
+    status["notification_channels"] = {
+        channel: {"enabled": info["enabled"], "configured": info["configured"],
+                  "counts": deliveries.get(channel, {}), "latest": last_deliveries.get(channel)}
+        for channel, info in (channels or {}).items()
+    }
     return status
 
 
-def publish(path, db, now):
+def publish(path, db, now, channels=None):
     path = Path(path)
     fd, pending = tempfile.mkstemp(prefix=".status-", dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(snapshot(db, now), handle, ensure_ascii=False)
+            json.dump(snapshot(db, now, channels), handle, ensure_ascii=False)
             os.fchmod(handle.fileno(), 0o644)
         os.replace(pending, path)
     finally:
         Path(pending).unlink(missing_ok=True)
+
+
+def publish_current(engine):
+    path = os.environ.get("MARKET_STATUS_PATH")
+    if not path:
+        return
+    try:
+        publish(path, engine.db, engine.now(), engine.notification_status())
+    except OSError as error:
+        logging.getLogger(__name__).warning("状态快照写入失败: %s", type(error).__name__)
 
 
 def read(path):

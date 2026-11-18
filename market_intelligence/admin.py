@@ -6,7 +6,6 @@ import binascii
 import getpass
 import hashlib
 import hmac
-from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -17,6 +16,7 @@ import threading
 from urllib.parse import parse_qs
 
 from . import operator_settings, status
+from .admin_view import render_dashboard
 
 
 FIELDS = (
@@ -63,33 +63,7 @@ def visible_values(settings):
 
 
 def render(settings, token, message="", snapshot=None):
-    numbers = "".join(
-        f'<label>{label}<input name="{key}" type="number" required value="{settings[key]}"></label>'
-        for key, label in FIELDS
-    )
-    terms = escape("\n".join(settings["ignore_title_terms"]))
-    state = "<p>等待采集状态快照。</p>"
-    if snapshot:
-        counts = snapshot["articles"]
-        state = (f"<p>上次采集 {escape(snapshot['updated_at'])}<br>"
-                 f"待分析 {int(counts.get('pending',0))} 篇 · 已分析 {int(counts.get('done',0))} 篇"
-                 ' · <a href="/admin/metrics">采集指标</a></p>')
-    return f"""<!doctype html>
-<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<title>TrendRadar 管理</title>
-<style>
-body{{font:16px system-ui,sans-serif;background:#111827;color:#f3f4f6;max-width:44rem;margin:3rem auto;padding:0 1rem}}
-h1{{font-size:1.65rem}}a{{color:#7dd3fc}}form{{background:#1f2937;padding:1.5rem;border-radius:.75rem}}
-label{{display:block;margin-bottom:1rem}}input,textarea{{display:block;color:inherit;background:#111827;border:1px solid #64748b;
-padding:.5rem .75rem;margin-top:.4rem;border-radius:.3rem;font:inherit}}textarea{{box-sizing:border-box;width:100%}}
-button{{background:#7dd3fc;color:#082f49;padding:.65rem 1rem;border:0;border-radius:.3rem;font-weight:600}}
-</style>
-<a href="http://tr.yumy.space/">新闻报告</a><h1>TrendRadar 管理</h1>
-<p>调整采集过滤词、分析预算和简报阈值。保存后从下一轮任务生效。</p>
-{state}<p role="status">{escape(message)}</p>
-<form action="/admin/" method="post"><input name="token" type="hidden" value="{token}">
-{numbers}<label>媒体标题过滤词，每行一个<textarea name="ignore_title_terms" rows="6">{terms}</textarea></label>
-<button>保存设置</button></form></html>""".encode()
+    return render_dashboard(settings, FIELDS, token, message, snapshot)
 
 
 class AdminServer(ThreadingHTTPServer):

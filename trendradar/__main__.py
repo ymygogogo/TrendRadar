@@ -1632,6 +1632,7 @@ class NewsAnalyzer:
         if not settings.get("enabled", False):
             return
         from market_intelligence import MarketIntelligence
+        from market_intelligence.status import publish_current
         from trendradar.ai.client import AIClient
 
         ai = self.ctx.config.get("AI", {})
@@ -1647,14 +1648,7 @@ class NewsAnalyzer:
             extension.dispatch_urgent()
             extension.dispatch_digest()
             extension.maintain()
-            status_path = os.environ.get("MARKET_STATUS_PATH")
-            if status_path:
-                from market_intelligence.status import publish
-
-                try:
-                    publish(status_path, extension.db, extension.now())
-                except OSError as error:
-                    print(f"[市场情报] 状态快照写入失败: {type(error).__name__}")
+            publish_current(extension)
         finally:
             extension.close()
 
