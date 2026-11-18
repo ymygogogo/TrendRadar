@@ -237,6 +237,8 @@ market_intelligence:
   digest:
     times: ["21:30"]
     trading_times: ["08:30", "11:35", "15:30"]
+    weekly_time: "20:30"
+    weekly_events_path: "config/market_events_calendar.yaml"
     calendar_path: "config/cn_trading_calendar.yaml"
     max_events: 8
     include_p2: false

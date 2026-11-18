@@ -1,0 +1,24 @@
+# Verified published schedules for selected macro events.
+coverage_until: "2026-12-31"
+events:
+  - title: 国家统计局流通领域重要生产资料市场价格旬报
+    starts_at: "2026-11-24T09:30:00+08:00"
+    source: https://www.stats.gov.cn/xw/tjxw/tzgg/202512/t20251224_1962137.html
+  - title: 美联储褐皮书
+    starts_at: "2026-11-25T14:00:00-05:00"
+    source: https://www.federalreserve.gov/newsevents/2026-November.htm
+  - title: 国家统计局工业经济效益月度报告
+    starts_at: "2026-11-27T09:30:00+08:00"
+    source: https://www.stats.gov.cn/xw/tjxw/tzgg/202512/t20251224_1962137.html
+  - title: 美联储 FOMC 利率决议
+    starts_at: "2026-12-09T14:00:00-05:00"
+    source: https://www.federalreserve.gov/newsevents/2026-december.htm
+  - title: 美国劳工统计局 11 月 CPI
+    starts_at: "2026-12-10T08:30:00-05:00"
+    source: https://www.bls.gov/schedule/2026/12_sched_list.htm
+  - title: 美国工业生产和产能利用率
+    starts_at: "2026-12-16T09:15:00-05:00"
+    source: https://www.federalreserve.gov/newsevents/2026-december.htm
+  - title: 美联储 FOMC 会议纪要
+    starts_at: "2026-12-30T14:00:00-05:00"
+    source: https://www.federalreserve.gov/newsevents/2026-december.htm

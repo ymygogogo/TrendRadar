@@ -309,3 +309,25 @@ def test_company_associations_are_derived_from_evidence_not_model(tmp_path):
     assert "https://www.naura.com/" in messages[0]
     assert "中芯国际" not in messages[0]
     engine.close()
+
+
+def test_weekly_calendar_normalizes_publisher_timezone_and_deduplicates(tmp_path):
+    from datetime import timedelta
+
+    cfg = settings(tmp_path)
+    cfg["digest"] = {"weekly_time": "20:30"}
+    clock = [NOW.replace(day=22, hour=20, minute=30)]
+    sent = []
+    engine = MarketIntelligence(cfg, {}, sender=lambda _, body: sent.append(body) or True, now=lambda: clock[0])
+    engine.dispatch_weekly_calendar()
+    assert len(sent) == 1
+    assert "11-26 03:00 美联储褐皮书" in sent[0]
+    assert "11-27 09:30 国家统计局工业经济效益月度报告" in sent[0]
+    engine.close()
+    clock[0] += timedelta(minutes=5)
+    engine = MarketIntelligence(cfg, {}, sender=lambda _, body: sent.append(body) or True, now=lambda: clock[0])
+    engine.dispatch_weekly_calendar()
+    assert len(sent) == 1
+    assert engine.db.execute("SELECT event_id,state FROM deliveries").fetchone()[:] == (
+        "calendar:2026-11-23", "delivered")
+    engine.close()

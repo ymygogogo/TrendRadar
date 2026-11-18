@@ -40,4 +40,13 @@ def cron_entries(settings):
             execute = slot + timedelta(minutes=delay)
             if execute.date() == slot.date():
                 entries.append(f"{execute.minute} {execute.hour} * * * cd /app && python -m market_intelligence trading-digest --slot {value}")
+    from .weekly_calendar import weekly_time
+
+    weekly = weekly_time(settings)
+    if weekly:
+        slot = datetime.strptime(weekly, "%H:%M")
+        for delay in (0, 5, 10):
+            execute = slot + timedelta(minutes=delay)
+            if execute.date() == slot.date():
+                entries.append(f"{execute.minute} {execute.hour} * * 0 cd /app && python -m market_intelligence weekly-calendar")
     return entries
