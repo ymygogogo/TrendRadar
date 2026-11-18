@@ -141,6 +141,8 @@ class MarketIntelligence:
             error TEXT, PRIMARY KEY(event_id, revision, channel)
         );
         CREATE INDEX IF NOT EXISTS idx_articles_event ON articles(event_id);
+        CREATE INDEX IF NOT EXISTS idx_articles_pending ON articles(analysis_state, collected_at);
+        CREATE INDEX IF NOT EXISTS idx_analysis_article ON analysis_attempts(article_id, attempted_at);
         CREATE INDEX IF NOT EXISTS idx_events_updated ON events(updated_at);
         """)
 
@@ -270,12 +272,26 @@ class MarketIntelligence:
         used = self.db.execute("SELECT count(*) FROM analysis_attempts WHERE attempted_at>=?", (day_start,)).fetchone()[0]
         daily_limit = int(self.settings.get("max_articles_per_day", 250))
         max_count = max(0, min(max_count, daily_limit - used))
-        cutoff = (self.now() - timedelta(days=int(self.settings.get("max_article_age_days", 2)))).isoformat()
-        rows = self.db.execute("""SELECT * FROM articles WHERE analysis_state='pending' AND collected_at>=?
+        if not max_count:
+            return
+        now = self.now()
+        cutoff = (now - timedelta(days=int(self.settings.get("max_article_age_days", 2)))).isoformat()
+        recent = (now - timedelta(hours=1)).isoformat()
+        # Keep recent news moving while using a quarter of each batch to drain older work.
+        # Either queue can use the whole batch when the other has no eligible articles.
+        query = """SELECT * FROM articles WHERE analysis_state='pending'
+            AND collected_at >= ? AND collected_at <= ?
             ORDER BY CASE WHEN EXISTS(SELECT 1 FROM feed_health h WHERE h.feed_id=articles.feed_id
             AND h.category LIKE '%_official') THEN 0 ELSE 1 END,
             (SELECT max(attempted_at) FROM analysis_attempts a WHERE a.article_id=articles.id),
-            collected_at DESC LIMIT ?""", (cutoff, max_count)).fetchall()
+            collected_at {order}, id LIMIT ?"""
+        fresh = self.db.execute(query.format(order="DESC"), (recent, now.isoformat(), max_count)).fetchall()
+        backlog = self.db.execute(query.format(order="ASC"), (cutoff, (now - timedelta(hours=1, microseconds=1)).isoformat(), max_count)).fetchall()
+        backlog_share = max_count // 4
+        if max_count > 1 and backlog:
+            backlog_share = max(1, backlog_share)
+        fresh_count = min(len(fresh), max_count - min(backlog_share, len(backlog)))
+        rows = [*fresh[:fresh_count], *backlog[:max_count - fresh_count]]
         for article in rows:
             self.db.execute("INSERT INTO analysis_attempts VALUES (?,?)", (self.now().isoformat(), article["id"]))
             self.db.commit()

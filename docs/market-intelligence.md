@@ -39,6 +39,8 @@ sudo docker compose --env-file image.env logs --since 1h trendradar
 sudo journalctl -u trendradar-update.service
 ```
 
+分析默认每轮最多 12 篇、每天最多 250 篇。每轮优先处理最近一小时的新资讯，给较早入库且仍在分析窗口内的文章保留约四分之一的额度。任何一队不足时，剩余额度供另一队使用。通过 `MARKET_MAX_ARTICLES_PER_RUN` 和 `MARKET_MAX_ARTICLES_PER_DAY` 可调整预算。
+
 定时简报默认北京时间 21:30，最多 8 条。紧急提醒要求近 24 小时的官方报道并通过模型证据校验。只有标题的官方索引缺少精确发布时间时可进入简报，紧急提醒保持关闭。分数与出处写入 SQLite。若企微已接受请求后进程在落库前中断，机器人接口没有幂等键，此极短窗口可导致重发。
 
 ## 升级、回退与检查

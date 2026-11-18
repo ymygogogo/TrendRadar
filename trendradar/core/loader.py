@@ -585,6 +585,10 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
         if override is not None:
             target = market if section is None else market.setdefault(section, {})
             target["enabled"] = override
+    for limit in ("max_articles_per_run", "max_articles_per_day"):
+        override = _get_env_int_or_none(f"MARKET_{limit.upper()}")
+        if override is not None and override >= 0:
+            market[limit] = override
     config["MARKET_INTELLIGENCE"] = market
 
     # AI 模型共享配置
