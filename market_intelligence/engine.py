@@ -277,7 +277,7 @@ class MarketIntelligence:
                 "verification_status must be one string: confirmed, corroborated or unverified. "
                 "Use confirmed only for facts established by the current official publication. "
                 "Use the same English direction enum at the top level and for every sector. "
-                "Use an empty sectors array if no impact can be justified. Score dimensions "
+                "Use the most specific substantiated sector names, such as AI chips rather than broad technology. Use an empty sectors array if no impact can be justified. Score dimensions "
                 "must be integers from 0 to 100. Confidence must be a number from 0 to 1. "
                 "Keep related_companies empty and source_urls identical to the example."
             ),

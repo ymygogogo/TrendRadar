@@ -123,11 +123,61 @@ def _heat_signals(db, event_id, published, now, publishers):
         if rank is not None:
             ranks.append(rank)
     best = min(ranks, default=None)
+    return {"heat": _heat_score(len(outlets), best, published, now), "outlet_count": len(outlets),
+            "outlets": sorted(outlets), "hotlist_rank": best}
+
+
+def _heat_score(outlet_count, rank, published, now):
     age_hours = (now.timestamp() - published) / 3600
-    coverage = 10 * min(4, len(outlets))
+    coverage = 10 * min(4, outlet_count)
     freshness = 30 * max(0, 1 - age_hours / 24)
-    rank_score = max(0, 31 - best) if best is not None else 0
-    return {"heat": round(coverage + freshness + rank_score), "outlet_count": len(outlets), "hotlist_rank": best}
+    rank_score = max(0, 31 - rank) if rank is not None else 0
+    return round(coverage + freshness + rank_score)
+
+
+def _speech_key(title):
+    # Pair the original news report with the transcript of the same named speech.
+    if not title or "主旨演讲" not in title:
+        return None, False
+    transcript = bool(re.search(r"全文|文字实录", title))
+    compact = re.sub(r"[^\w]", "", title).removeprefix("全文")
+    key = re.sub(r"全文|文字实录|出席|开幕式|并发表|时发表|发表|上的|在", "", compact)
+    return (key if len(key) >= 14 else None), transcript
+
+
+def _combine_speech_reports(buckets, now):
+    index = {}
+    combined = {}
+    for tier, candidates in buckets.items():
+        events = []
+        for rank, event in sorted(candidates):
+            key, transcript = _speech_key(event["title"])
+            if key is None:
+                events.append((rank[1], event))
+                continue
+            published = -rank[1]
+            existing = index.setdefault(key, [])
+            original = next((item for item in existing if (transcript or item[2])
+                             and abs(item[0] - published) <= 12 * 3600), None)
+            if original is None:
+                existing.append((published, event, transcript))
+                events.append((rank[1], event))
+                continue
+            original_stamp, primary, _ = original
+            primary.setdefault("related_versions", []).append((event["event_id"], event["revision"]))
+            sources = primary.setdefault("other_sources", [])
+            if event["source"] and event["source"] not in (primary["source"], *sources):
+                sources.append(event["source"])
+            outlets = sorted(set(primary["outlets"]) | set(event["outlets"]))
+            ranks = [value for value in (primary["hotlist_rank"], event["hotlist_rank"]) if value is not None]
+            best = min(ranks, default=None)
+            primary.update(outlets=outlets, outlet_count=len(outlets), hotlist_rank=best,
+                           heat=_heat_score(len(outlets), best, original_stamp, now))
+        combined[tier] = events
+    return {
+        tier: [((-event["heat"], stamp, event["event_id"]), event) for stamp, event in items]
+        for tier, items in combined.items()
+    }
 
 
 def _cover_topics(ranked, limit):
@@ -187,6 +237,7 @@ def select_events(db, settings, companies, now, start):
         rank = (-signals["heat"], -published, row["id"])
         buckets[tier].append((rank, _event_details(row, data, tier, topic, signals, companies)))
 
+    buckets = _combine_speech_reports(buckets, now)
     main = _cover_topics(buckets["main"], max_events)
     for tier in ("watch", "extended"):
         main.extend(item for _, item in sorted(buckets[tier])[:max(0, MIN_EVENTS - len(main))])
@@ -210,7 +261,9 @@ def freeze_edition(db, key, edition):
                              (key, edition["created_at"], json.dumps(edition, ensure_ascii=False))).rowcount
         if inserted:
             db.executemany("INSERT INTO digest_entries VALUES (?,?,?)",
-                           [(key, event["event_id"], event["revision"]) for event in edition["events"]])
+                           [(key, event_id, revision) for event in edition["events"]
+                            for event_id, revision in [(event["event_id"], event["revision"]),
+                                                       *event.get("related_versions", [])]])
     return stored_edition(db, key)
 
 

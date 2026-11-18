@@ -250,6 +250,7 @@ def _digest_event(event, number):
     )
     sectors = f'<ul>{sector_rows}</ul>' if sector_rows else "<p>暂无明确关联板块</p>"
     source = _evidence_link(event["source"], "新闻原文")
+    sources = " ".join(_evidence_link(url, "同事件报道") for url in event.get("other_sources", []))
     concepts = escape("、".join(event.get("concepts", []))) or "暂无明确关联概念"
     topic = TOPIC_LABELS.get(event.get("topic"))
     heat = ""
@@ -262,7 +263,7 @@ def _digest_event(event, number):
 <h2>{number}. {escape(event['title'])}</h2>
 {heat}<p class="muted">{escape(event['priority'])}{tier} · A 股影响评分 {event['score']} 分 ·
 {VERIFICATION_STATES.get(event['verification'], '待核实')} · 最近报道 {local_time(event['reported_at'], full=True)}</p>
-<h3>事件事实</h3><p>{escape(event['summary'])} {source}</p>
+<h3>事件事实</h3><p>{escape(event['summary'])} {source} {sources}</p>
 <h3>A 股潜在影响</h3><p>{DIRECTIONS_ZH.get(event['direction'], '影响不明确')} · {escape(event['impact'] or '暂无足够证据')}</p>
 <h3>相关概念与板块</h3><p>{concepts}</p>{sectors}
 <h3>相关股票与证据</h3>{stocks}

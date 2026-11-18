@@ -155,3 +155,28 @@ def test_digest_reserves_top_item_per_available_topic(tmp_path):
         ]
     finally:
         engine.close()
+
+
+def test_same_named_speech_keeps_one_slot_and_both_sources(tmp_path):
+    engine = MarketIntelligence({"database_path": str(tmp_path / "speeches.db")}, {}, now=lambda: NOW)
+    speech = "习近平出席亚太经合组织工商领导人峰会开幕式并发表主旨演讲"
+    transcript = "习近平在亚太经合组织工商领导人峰会上的主旨演讲（全文）"
+    distinct = "习近平在亚太经合组织领导人非正式会议上的主旨演讲（全文）"
+    try:
+        add_event(engine.db, "speech", 70, 1, title=speech, categories=("全球",))
+        add_event(engine.db, "transcript", 72, 3, title=transcript, categories=("全球",))
+        add_event(engine.db, "different", 72, 3, title=distinct, categories=("全球",))
+        with engine.db:
+            engine.db.execute("UPDATE articles SET feed_id='another-outlet' WHERE event_id='transcript'")
+        edition = digests.make_edition(engine, KEY, NOW, NOW - timedelta(hours=24), "热点新闻简报")
+        edition = digests.freeze_edition(engine.db, KEY, edition)
+        assert [event["event_id"] for event in edition["events"]] == ["speech", "different"]
+        combined = edition["events"][0]
+        assert combined["outlet_count"] == 2
+        assert combined["other_sources"] == ["https://news.example/transcript-1"]
+        assert combined["related_versions"] == [["transcript", 1]]
+        assert {row[0] for row in engine.db.execute("SELECT event_id FROM digest_entries")} == {
+            "speech", "transcript", "different",
+        }
+    finally:
+        engine.close()
