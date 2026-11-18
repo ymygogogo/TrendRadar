@@ -2,8 +2,9 @@
 set -euo pipefail
 umask 077
 
-name=trendradar-runtime-pve
-state=/var/lib/trendradar-actions-runner
+name=${TRENDRADAR_RUNNER_NAME:-trendradar-runtime-pve}
+state=${TRENDRADAR_RUNNER_STATE:-/var/lib/trendradar-actions-runner}
+repo=${TRENDRADAR_RUNNER_REPO:-ymygogogo/TrendRadar}
 image=ghcr.io/actions/actions-runner:2.338.2
 credential_files=(.runner .credentials .credentials_rsaparams)
 install -d -m 700 "$state"
@@ -76,10 +77,10 @@ for entry in Path("/proc").glob("[0-9]*/comm"):
         docker exec -i -w /home/runner "$name" /bin/bash -c '
             IFS= read -r registration_token
             test -n "$registration_token"
-            exec ./config.sh --unattended --url https://github.com/ymygogogo/TrendRadar \
-                --token "$registration_token" --name trendradar-runtime-pve \
-                --labels trendradar-runtime-pve --no-default-labels --work _work
-        '
+            exec ./config.sh --unattended --url "https://github.com/$1" \
+                --token "$registration_token" --name "$2" \
+                --labels "$2" --no-default-labels --work _work
+        ' _ "$repo" "$name"
         docker exec -w /home/runner "$name" tar -cf - "${credential_files[@]}" |
             tar -xf - -C "$state" --no-same-owner --no-same-permissions
         chmod 600 "${credential_files[@]/#/$state/}"

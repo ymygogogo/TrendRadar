@@ -3,7 +3,13 @@
 set -euo pipefail
 
 request=${SSH_ORIGINAL_COMMAND:-}
-if [[ $request =~ ^image\ ([a-f0-9]{40})$ ]]; then
+if [[ $request == status ]]; then
+    exec sudo -n /opt/trendradar/update.sh status
+elif [[ $request =~ ^image-artifact\ ([a-f0-9]{40})$ ]]; then
+    exec sudo -n /opt/trendradar/update.sh "${BASH_REMATCH[1]}" stdin
+elif [[ $request =~ ^runtime-artifact\ ([a-f0-9]{64})$ ]]; then
+    exec sudo -n /opt/trendradar/runtime-update.sh "${BASH_REMATCH[1]}" stdin
+elif [[ $request =~ ^image\ ([a-f0-9]{40})$ ]]; then
     exec sudo -n /opt/trendradar/update.sh "${BASH_REMATCH[1]}"
 elif [[ $request =~ ^runtime\ ([a-f0-9]{64})$ ]]; then
     exec sudo -n /opt/trendradar/runtime-update.sh "${BASH_REMATCH[1]}"

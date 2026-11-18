@@ -5,8 +5,12 @@ cd /opt/trendradar
 [[ ! -r deploy-egress.env ]] || source ./deploy-egress.env
 exec 9>deploy.lock
 requested=${1:-}
+transport=${2:-release}
+[[ $# -le 2 && ( $transport == release || $transport == stdin ) ]] || exit 2
 repo=ymygogogo/TrendRadar
-if [[ -n $requested ]]; then
+if [[ $requested == status ]]; then
+    flock -w 120 9
+elif [[ -n $requested ]]; then
     [[ $requested =~ ^[a-f0-9]{40}$ ]] || exit 2
     flock -w 120 9
     commit=$requested
@@ -38,12 +42,21 @@ receipt() {
     printf 'Image deployed: %s %s (healthy)\n' "$commit" "$image"
 }
 
+if [[ $requested == status ]]; then
+    commit=$(sed -n 's/^TREND_IMAGE=trendradar-pve:\([a-f0-9]\{40\}\)$/\1/p' image.env)
+    [[ $commit =~ ^[a-f0-9]{40}$ ]] || exit 1
+    verify_image >/dev/null
+    printf '%s\n' "$commit"
+    exit 0
+fi
+
 if [[ -f image.env ]]; then
     current_ref=$(grep -E '^TREND_IMAGE=trendradar-pve:[a-f0-9]{40}$' image.env || true)
     if [[ $current_ref =~ ([a-f0-9]{40})$ ]]; then
         current_commit=${BASH_REMATCH[1]}
         if [[ "$current_commit" == "$commit" ]]; then
             if [[ -n $requested ]]; then
+                if [[ $transport == stdin ]]; then cat >/dev/null; fi
                 image=$(verify_image)
                 receipt "$image"
             fi
@@ -61,21 +74,25 @@ fi
 if [[ -z $requested && -f failed-release ]] && grep -Fxq "$tag" failed-release; then exit 0; fi
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
-for asset in compose.yaml SHA256SUMS IMAGE_ID; do
-    curl --retry 2 --max-time 900 -fsSL "https://github.com/$repo/releases/download/$tag/$asset" -o "$stage/$asset"
-done
-[[ $(awk '{print $2}' "$stage/SHA256SUMS") == trendradar-image.tar.gz ]]
 archive=$stage/trendradar-image.tar.gz
 cached=$PWD/release-cache/$tag.tar.gz
-if [[ -f "$cached" ]]; then
-    ln -s "$cached" "$archive"
-    if ! (cd "$stage" && sha256sum --strict -c SHA256SUMS); then
-        rm -f "$archive"
+if [[ $transport == stdin ]]; then
+    python3 /opt/trendradar/read-artifact.py "$stage"
+else
+    for asset in compose.yaml SHA256SUMS IMAGE_ID; do
+        curl --retry 2 --max-time 900 -fsSL "https://github.com/$repo/releases/download/$tag/$asset" -o "$stage/$asset"
+    done
+    if [[ -f "$cached" ]]; then
+        ln -s "$cached" "$archive"
+        if ! (cd "$stage" && sha256sum --strict -c SHA256SUMS); then
+            rm -f "$archive"
+        fi
+    fi
+    if [[ ! -e "$archive" ]]; then
+        curl --retry 2 --max-time 900 -fsSL "https://github.com/$repo/releases/download/$tag/trendradar-image.tar.gz" -o "$archive"
     fi
 fi
-if [[ ! -e "$archive" ]]; then
-    curl --retry 2 --max-time 900 -fsSL "https://github.com/$repo/releases/download/$tag/trendradar-image.tar.gz" -o "$archive"
-fi
+[[ $(awk '{print $2}' "$stage/SHA256SUMS") == trendradar-image.tar.gz ]]
 (cd "$stage" && sha256sum --strict -c SHA256SUMS)
 docker load -i "$stage/trendradar-image.tar.gz"
 ref=trendradar-pve:$commit

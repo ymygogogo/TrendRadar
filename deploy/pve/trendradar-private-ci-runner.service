@@ -1,0 +1,19 @@
+[Unit]
+Description=Private TrendRadar GitHub Actions runner on PVE VM 108
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=TRENDRADAR_RUNNER_NAME=trendradar-private-pve
+Environment=TRENDRADAR_RUNNER_STATE=/var/lib/trendradar-private-actions-runner
+Environment=TRENDRADAR_RUNNER_REPO=ymygogogo/trendradar-ci
+ExecStart=/opt/trendradar-private-ci/ci-runner.sh run
+ExecStop=/opt/trendradar-private-ci/ci-runner.sh stop
+Restart=always
+RestartSec=7
+TimeoutStopSec=40
+
+[Install]
+WantedBy=multi-user.target

@@ -205,6 +205,7 @@ rss:
      
     - id: "yahoo-finance"
       name: "雅虎财经"
+      category: "international_media"
       url: "https://finance.yahoo.com/news/rssindex"
 
     # 自定义源示例
@@ -229,6 +230,10 @@ market_intelligence:
   max_articles_per_day: 250
   retention_days: 30
   domestic_platforms: ["cls-hot", "wallstreetcn-hot", "thepaper", "eastmoney", "cls-telegraph"]
+  crawl_filter:
+    enabled: false
+    rss_categories: ["domestic_official", "domestic_media", "international_official", "international_media"]
+    ignore_title_terms: ["圈粉", "饭圈", "粉丝应援", "明星红毯", "综艺花絮", "明星穿搭", "celebrity gossip", "red carpet look"]
   digest:
     times: ["21:30"]
     max_events: 8
