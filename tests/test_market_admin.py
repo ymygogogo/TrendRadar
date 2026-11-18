@@ -16,14 +16,18 @@ def test_admin_requires_login_and_origin_and_persists_valid_form(tmp_path):
     credential = tmp_path / "password.json"
     credential.write_text(json.dumps({"salt": salt.hex(), "hash": password_hash(password, salt)}))
     state = tmp_path / "settings.json"
-    server = AdminServer(("127.0.0.1", 0), {}, state, credential, "https://tr.yumy.space")
+    snapshot = tmp_path / "status.json"
+    snapshot.write_text(json.dumps({"updated_timestamp": 1, "updated_at": "2026-11-18T16:30:00+08:00",
+                                    "articles": {"pending": 42}, "events": {}, "deliveries": {},
+                                    "analysis_attempts": 50, "sources": []}))
+    server = AdminServer(("127.0.0.1", 0), {}, state, credential, "https://tr.yumy.space", snapshot)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     auth = "Basic " + base64.b64encode(f"admin:{password}".encode()).decode()
     try:
-        def request(method, body=None, headers=None):
+        def request(method, body=None, headers=None, route="/admin/"):
             connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=10)
-            connection.request(method, "/admin/", body, headers or {})
+            connection.request(method, route, body, headers or {})
             answer = connection.getresponse()
             result = answer.status, answer.read().decode()
             connection.close()
@@ -33,6 +37,10 @@ def test_admin_requires_login_and_origin_and_persists_valid_form(tmp_path):
         assert request("GET", headers={"Authorization": "Basic !!!"})[0] == 401
         status, document = request("GET", headers={"Authorization": auth})
         assert status == 200
+        assert "待分析 42 篇" in document
+        assert request("GET", route="/admin/metrics")[0] == 401
+        assert 'trendradar_articles{state="pending"} 42' in request(
+            "GET", headers={"Authorization": auth}, route="/admin/metrics")[1]
         token = re.search(r'name="token" type="hidden" value="([^"]+)"', document)[1]
         data = {
             "token": token, "min_priority_score": 75, "urgent_priority_score": 90,

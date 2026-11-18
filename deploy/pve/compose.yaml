@@ -12,6 +12,7 @@ services:
       MARKET_ENABLED: "true"
       MARKET_FOCUSED_CRAWL: "true"
       MARKET_OPERATOR_SETTINGS: /app/admin-state/settings.json
+      MARKET_STATUS_PATH: /app/admin-status/status.json
       AI_ANALYSIS_ENABLED: "false"
       AI_TRANSLATION_ENABLED: "false"
       LOCAL_RETENTION_DAYS: "30"
@@ -21,6 +22,7 @@ services:
     volumes:
       - ./output:/app/output
       - ./admin-state:/app/admin-state:ro
+      - ./admin-status:/app/admin-status
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/', timeout=3)"]
       interval: 15s
@@ -49,9 +51,11 @@ services:
       MARKET_ENABLED: "true"
       MARKET_FOCUSED_CRAWL: "true"
       MARKET_OPERATOR_SETTINGS: /app/admin-state/settings.json
+      MARKET_STATUS_PATH: /app/admin-status/status.json
     volumes:
       - ./admin-state:/app/admin-state
       - ./admin-private:/app/admin-private:ro
+      - ./admin-status:/app/admin-status:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1',8443),3).close()"]
       interval: 15s

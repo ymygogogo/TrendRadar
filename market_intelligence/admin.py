@@ -16,7 +16,7 @@ import ssl
 import threading
 from urllib.parse import parse_qs
 
-from . import operator_settings
+from . import operator_settings, status
 
 
 FIELDS = (
@@ -62,12 +62,18 @@ def visible_values(settings):
     }
 
 
-def render(settings, token, message=""):
+def render(settings, token, message="", snapshot=None):
     numbers = "".join(
         f'<label>{label}<input name="{key}" type="number" required value="{settings[key]}"></label>'
         for key, label in FIELDS
     )
     terms = escape("\n".join(settings["ignore_title_terms"]))
+    state = "<p>等待采集状态快照。</p>"
+    if snapshot:
+        counts = snapshot["articles"]
+        state = (f"<p>上次采集 {escape(snapshot['updated_at'])}<br>"
+                 f"待分析 {int(counts.get('pending',0))} 篇 · 已分析 {int(counts.get('done',0))} 篇"
+                 ' · <a href="/admin/metrics">采集指标</a></p>')
     return f"""<!doctype html>
 <html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>TrendRadar 管理</title>
@@ -80,7 +86,7 @@ button{{background:#7dd3fc;color:#082f49;padding:.65rem 1rem;border:0;border-rad
 </style>
 <a href="http://tr.yumy.space/">新闻报告</a><h1>TrendRadar 管理</h1>
 <p>调整采集过滤词、分析预算和简报阈值。保存后从下一轮任务生效。</p>
-<p role="status">{escape(message)}</p>
+{state}<p role="status">{escape(message)}</p>
 <form action="/admin/" method="post"><input name="token" type="hidden" value="{token}">
 {numbers}<label>媒体标题过滤词，每行一个<textarea name="ignore_title_terms" rows="6">{terms}</textarea></label>
 <button>保存设置</button></form></html>""".encode()
@@ -89,11 +95,12 @@ button{{background:#7dd3fc;color:#082f49;padding:.65rem 1rem;border:0;border-rad
 class AdminServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, address, base, settings_path, password_path, origin):
+    def __init__(self, address, base, settings_path, password_path, origin, status_path=None):
         self.base = base
         self.settings_path = settings_path
         self.password_path = password_path
         self.origin = origin
+        self.status_path = status_path
         self.token = secrets.token_urlsafe(32)
         self.save_lock = threading.Lock()
         super().__init__(address, AdminRequest)
@@ -107,9 +114,9 @@ class AdminRequest(BaseHTTPRequestHandler):
         self.request.settimeout(15)
         super().setup()
 
-    def reply(self, code, body=b"", authenticate=False):
+    def reply(self, code, body=b"", authenticate=False, content_type="text/html; charset=utf-8"):
         self.send_response(code)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
@@ -134,10 +141,17 @@ class AdminRequest(BaseHTTPRequestHandler):
         return False
 
     def do_GET(self):
-        if self.path != "/admin/":
+        if self.path not in ("/admin/", "/admin/metrics"):
             self.reply(404)
         elif self.authorized():
-            self.reply(200, render(self.server.settings(), self.server.token))
+            snapshot = status.read(self.server.status_path)
+            if self.path == "/admin/metrics":
+                if snapshot is None:
+                    self.reply(503)
+                else:
+                    self.reply(200, status.metrics(snapshot), content_type="text/plain; version=0.0.4; charset=utf-8")
+            else:
+                self.reply(200, render(self.server.settings(), self.server.token, snapshot=snapshot))
 
     def do_POST(self):
         if self.path != "/admin/":
@@ -179,7 +193,9 @@ def main():
     from trendradar.core import load_config
 
     base = load_config()["MARKET_INTELLIGENCE"]
-    server = AdminServer(("0.0.0.0", 8443), base, state / "settings.json", password_path, "https://tr.yumy.space")
+    status_path = os.environ.get("MARKET_STATUS_PATH")
+    server = AdminServer(("0.0.0.0", 8443), base, state / "settings.json", password_path,
+                         "https://tr.yumy.space", status_path)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.load_cert_chain(private / "fullchain.pem", private / "privkey.pem")

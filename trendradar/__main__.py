@@ -1647,6 +1647,14 @@ class NewsAnalyzer:
             extension.dispatch_urgent()
             extension.dispatch_digest()
             extension.maintain()
+            status_path = os.environ.get("MARKET_STATUS_PATH")
+            if status_path:
+                from market_intelligence.status import publish
+
+                try:
+                    publish(status_path, extension.db, extension.now())
+                except OSError as error:
+                    print(f"[市场情报] 状态快照写入失败: {type(error).__name__}")
         finally:
             extension.close()
 
