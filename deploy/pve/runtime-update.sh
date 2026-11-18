@@ -2,19 +2,22 @@
 set -euo pipefail
 umask 077
 cd /opt/trendradar
-exec 9>deploy.lock
-flock -n 9 || exit 0
+# Keep retries from holding the lock shared with the image updater.
+exec 8>runtime-download.lock
+flock -n 8 || exit 0
 stage=$(mktemp -d "$PWD/.runtime-update.XXXXXX")
 trap 'rm -rf "$stage"' EXIT
 
 url=https://github.com/ymygogogo/TrendRadar/releases/download/pve-runtime/runtime.env.enc
-status=$(curl -sSL --retry 2 --max-time 30 --max-filesize 16384     -o "$stage/envelope" -w '%{http_code}' "$url")
+status=$(curl -sSL --connect-timeout 8 --retry 1 --retry-max-time 25 --max-time 20 --max-filesize 16384     -o "$stage/envelope" -w '%{http_code}' "$url")
 case "$status" in
     200) ;;
     404) exit 0 ;;
     *) printf 'Runtime release unavailable (HTTP %s)\n' "$status" >&2; exit 1 ;;
 esac
 digest=$(sha256sum "$stage/envelope" | cut -d' ' -f1)
+exec 9>deploy.lock
+flock -n 9 || exit 0
 if [[ -f runtime.applied ]] && grep -Fxq "$digest" runtime.applied; then exit 0; fi
 
 python3 runtime_config.py stage "$PWD" "$stage/runtime.env" < "$stage/envelope"
