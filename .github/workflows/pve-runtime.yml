@@ -3,25 +3,27 @@ on:
   workflow_dispatch:
     inputs:
       pve_runner_label:
-        description: Unique label of the one-job PVE runner (blank uses GitHub hosting)
+        description: Optional PVE runner label (blank uses trendradar-runtime-pve)
         type: string
         required: false
 permissions:
   contents: read
 concurrency:
-  group: trendradar-pve-runtime
+  group: trendradar-pve-runtime-v2
   cancel-in-progress: false
 jobs:
   publish:
     if: >-
       github.repository == 'ymygogogo/TrendRadar' && github.ref == 'refs/heads/master' &&
       (inputs.pve_runner_label == '' || startsWith(inputs.pve_runner_label, 'trendradar-runtime-'))
-    runs-on: ${{ inputs.pve_runner_label || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.pve_runner_label || 'trendradar-runtime-pve' }}
     timeout-minutes: 8
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Encrypt runtime configuration for the VM
         env:
           MODEL_KEY: ${{ secrets.MODEL_KEY }}

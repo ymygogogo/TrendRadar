@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+name=trendradar-runtime-pve
+state=/var/lib/trendradar-actions-runner
+image=ghcr.io/actions/actions-runner:2.338.2
+credential_files=(.runner .credentials .credentials_rsaparams)
+install -d -m 700 "$state"
+exec 9>"$state/lock"
+flock -n 9
+
+cleanup() {
+    docker rm -f "$name" >/dev/null 2>&1 || true
+}
+
+start_container() {
+    if docker container inspect "$name" >/dev/null 2>&1; then
+        test "$(docker inspect -f '{{index .Config.Labels "io.trendradar.runner"}}' "$name")" = managed
+        cleanup
+    fi
+    docker run --pull=never --rm -d --name "$name" --label io.trendradar.runner=managed \
+        --user runner --cap-drop=ALL --security-opt no-new-privileges \
+        --pids-limit 160 --memory 2g --cpus 1.5 --sysctl net.ipv6.conf.all.disable_ipv6=1 \
+        --log-driver local -e HTTPS_PROXY=http://192.168.0.2:7890 \
+        -e HTTP_PROXY=http://192.168.0.2:7890 \
+        -e NO_PROXY=localhost,127.0.0.1,github.com,api.github.com \
+        --entrypoint /bin/sleep "$image" infinity >/dev/null
+    trap cleanup EXIT
+
+    pid=$(docker inspect -f '{{.State.Pid}}' "$name")
+    test "$(readlink /proc/1/ns/net)" != "$(readlink "/proc/$pid/ns/net")"
+    rules=(nsenter -t "$pid" -n iptables)
+    "${rules[@]}" -N TREND_OUT
+    "${rules[@]}" -A TREND_OUT -d 192.168.0.2/32 -p tcp --dport 7890 -j RETURN
+    for range in 10.0.0.0/8 100.64.0.0/10 169.254.0.0/16 172.16.0.0/12 192.168.0.0/16; do
+        "${rules[@]}" -A TREND_OUT -d "$range" -j REJECT
+    done
+    "${rules[@]}" -I OUTPUT 1 -j TREND_OUT
+
+    docker exec "$name" sh -c 'test "$(id -u)" != 0; test ! -S /var/run/docker.sock; mkdir -p /tmp/trendradar-tools'
+    if ! docker exec "$name" sh -c 'command -v gh' >/dev/null; then
+        docker cp /usr/bin/gh "$name:/tmp/trendradar-tools/gh"
+        docker exec "$name" /tmp/trendradar-tools/gh --version >/dev/null
+    fi
+}
+
+case "${1:-}" in
+    register)
+        test ! -e "$state/.runner"
+        start_container
+        docker exec -i -w /home/runner "$name" /bin/bash -c '
+            IFS= read -r registration_token
+            test -n "$registration_token"
+            exec ./config.sh --unattended --url https://github.com/ymygogogo/TrendRadar \
+                --token "$registration_token" --name trendradar-runtime-pve \
+                --labels trendradar-runtime-pve --no-default-labels --work _work
+        '
+        docker exec -w /home/runner "$name" tar -cf - "${credential_files[@]}" |
+            tar -xf - -C "$state" --no-same-owner --no-same-permissions
+        chmod 600 "${credential_files[@]/#/$state/}"
+        ;;
+    run)
+        for file in "${credential_files[@]}"; do test -s "$state/$file"; done
+        start_container
+        tar -cf - -C "$state" "${credential_files[@]}" |
+            docker exec -i -w /home/runner "$name" tar -xf - --no-same-owner
+        docker exec -e PATH=/tmp/trendradar-tools:/usr/local/bin:/usr/bin:/bin \
+            -w /home/runner "$name" ./run.sh --once
+        ;;
+    *) printf 'Specify register or run\n' >&2; exit 2 ;;
+esac
