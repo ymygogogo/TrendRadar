@@ -1,10 +1,12 @@
 """Operator commands for TrendRadar market intelligence."""
 
 import argparse
+from contextlib import redirect_stdout
 import json
 import os
 from pathlib import Path
 import sqlite3
+import sys
 import time
 
 
@@ -55,11 +57,39 @@ def health(database):
     return 0
 
 
+def trading_command(command, slot):
+    # Loader progress belongs in container logs, never in the generated crontab.
+    with redirect_stdout(sys.stderr):
+        from trendradar.core import load_config
+
+        config = load_config()
+    settings = config["MARKET_INTELLIGENCE"]
+    if command == "digest-cron":
+        from .trading_calendar import cron_entries
+
+        for entry in cron_entries(settings):
+            print(entry)
+    elif settings.get("enabled"):
+        from .engine import MarketIntelligence
+
+        engine = MarketIntelligence(settings, config)
+        try:
+            engine.dispatch_digest(trading_slot=slot)
+        finally:
+            engine.close()
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["check-sources", "health"])
+    parser.add_argument("command", choices=["check-sources", "health", "digest-cron", "trading-digest"])
     parser.add_argument("--database", default="output/market_intelligence.db")
+    parser.add_argument("--slot", help="Configured trading digest time in HH:MM")
     args = parser.parse_args()
+    if args.command == "trading-digest" and args.slot is None:
+        parser.error("trading-digest requires --slot")
+    if args.command in {"digest-cron", "trading-digest"}:
+        return trading_command(args.command, args.slot)
     return check_sources() if args.command == "check-sources" else health(args.database)
 
 
