@@ -139,6 +139,11 @@ class MarketIntelligence:
         CREATE TABLE IF NOT EXISTS analysis_attempts (
             attempted_at TEXT NOT NULL, article_id TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS market_closes (
+            trade_day TEXT NOT NULL, code TEXT NOT NULL, name TEXT NOT NULL,
+            close_point TEXT NOT NULL, traded_amount TEXT NOT NULL,
+            PRIMARY KEY(trade_day, code)
+        );
         CREATE TABLE IF NOT EXISTS event_versions (
             event_id TEXT NOT NULL, revision INTEGER NOT NULL, created_at TEXT NOT NULL,
             analysis_json TEXT NOT NULL, PRIMARY KEY(event_id, revision)
@@ -449,6 +454,62 @@ class MarketIntelligence:
                 if self._deliver(event["id"], event["revision"], channel, self._format(event), "A 股重大事件预警"):
                     sent += 1
 
+    def collect_market_close(self):
+        from .market_close import fetch_snapshot
+        from .trading_calendar import trading_day
+
+        config = self.settings.get("market_close", {})
+        if not config.get("enabled"):
+            return
+        day = self.now().date()
+        path = self.settings.get("digest", {}).get("calendar_path", "config/cn_trading_calendar.yaml")
+        try:
+            if trading_day(day, path) is not True:
+                return
+            rows = fetch_snapshot(set(config.get("index_codes", [])))
+            for (trade_day, code), (name, point, amount) in rows.items():
+                if trade_day <= day and trading_day(trade_day, path):
+                    self.db.execute("""INSERT INTO market_closes VALUES (?,?,?,?,?)
+                        ON CONFLICT(trade_day,code) DO UPDATE SET name=excluded.name,
+                        close_point=excluded.close_point,traded_amount=excluded.traded_amount""",
+                        (trade_day.isoformat(), code, name, str(point), str(amount)))
+            self.db.commit()
+        except (OSError, ValueError, KeyError) as error:
+            self.db.rollback()
+            print(f"[市场收盘] 公开快照读取失败: {type(error).__name__}")
+
+    def closing_lines(self, day):
+        from decimal import Decimal
+        from .market_close import SOURCE
+        from .trading_calendar import trading_day
+
+        calendar = self.settings.get("digest", {}).get("calendar_path", "config/cn_trading_calendar.yaml")
+        if trading_day(day, calendar) is not True:
+            return []
+        records = self.db.execute("SELECT * FROM market_closes WHERE trade_day=? ORDER BY code",
+                                  (day.isoformat(),)).fetchall()
+        if not records:
+            return [f"当日收盘快照尚未发布或采集失败。[上交所]({SOURCE})"]
+        prior = day
+        for offset in range(1, 16):
+            candidate = day - timedelta(days=offset)
+            is_trading = trading_day(candidate, calendar)
+            if is_trading is None:
+                break
+            if is_trading:
+                prior = candidate
+                break
+        previous = dict(self.db.execute("SELECT code,close_point FROM market_closes WHERE trade_day=?",
+                                        (prior.isoformat(),))) if prior < day else {}
+        lines = [f"同日市场对照（收盘观测）。[上交所]({SOURCE})"]
+        for row in records:
+            movement = ""
+            if row["code"] in previous:
+                change = (Decimal(row["close_point"]) / Decimal(previous[row["code"]]) - 1) * 100
+                movement = f"，较上一交易日 {change:+.2f}%"
+            lines.append(f"- {row['name']}收盘 {row['close_point']}，成交额 {row['traded_amount']} 亿元{movement}")
+        return lines
+
     def dispatch_digest(self, trading_slot=None):
         _, channels = self._policy()
         if not channels:
@@ -498,6 +559,9 @@ class MarketIntelligence:
                 lines.append(f"- {event['title_zh'][:70]}（{event['score']}分，{event['verification_status']}）" +
                              (f" [来源]({source[0]})" if source else "") +
                              (f" · 业务关联：{names}" if names else ""))
+            closing = self.settings.get("market_close", {})
+            if closing.get("enabled") and time_text in closing.get("display_slots", []):
+                lines.extend(self.closing_lines(slot.date()))
             for channel in channels:
                 if self._deliver(key, 1, channel, "\n".join(lines), heading):
                     print(f"[A 股简报] {slot.isoformat()} 已通过 {channel} 发送 {len(rows)} 条")
@@ -536,6 +600,7 @@ class MarketIntelligence:
         self.db.execute("DELETE FROM event_versions WHERE event_id IN (SELECT id FROM events WHERE updated_at<?)", (cutoff,))
         self.db.execute("DELETE FROM events WHERE updated_at<?", (cutoff,))
         self.db.execute("DELETE FROM deliveries WHERE updated_at<?", (cutoff,))
+        self.db.execute("DELETE FROM market_closes WHERE trade_day<?", (cutoff[:10],))
         self.db.commit()
 
     def run(self, rss_data, diagnostics, categories=None):
