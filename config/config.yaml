@@ -248,6 +248,99 @@ market_intelligence:
     enabled: false
     min_priority_score: 70
     urgent_priority_score: 85
+    admission:
+      enabled: true
+      record_only_sources: ["hacker-news"]
+      always_analyze_categories: ["domestic_official", "international_official"]
+      # 媒体标题或摘要出现任一监控主题时，进入 AI 队列。上游报告及原始记录仍可查。
+      media_terms:
+        - 央行
+        - 美联储
+        - 降息
+        - 加息
+        - 利率
+        - 存款准备金率
+        - 通胀
+        - 非农
+        - 国债
+        - 货币政策
+        - 财政政策
+        - 房地产
+        - 监管新规
+        - 证监会
+        - 资本市场
+        - 国家统计局
+        - 贸易谈判
+        - 关税
+        - 制裁
+        - 出口管制
+        - 芯片
+        - 半导体
+        - 英伟达
+        - 算力
+        - 供应链
+        - 产业链
+        - 新能源
+        - 储能
+        - 电动汽车
+        - 锂电
+        - 稀土
+        - 原油
+        - 天然气
+        - 黄金
+        - 铜价
+        - 霍尔木兹
+        - 停火
+        - 空袭
+        - 战争
+        - 地缘冲突
+        - 流动性危机
+        - 并购
+        - 财报
+        - 业绩预告
+        - 利润预警
+        - "central bank"
+        - "federal reserve"
+        - "interest rates"
+        - "rate cut"
+        - inflation
+        - "jobs report"
+        - "monetary policy"
+        - "fiscal policy"
+        - "trade deal"
+        - tariff
+        - tariffs
+        - sanction
+        - sanctions
+        - "export controls"
+        - "chip exports"
+        - chip
+        - chips
+        - semiconductor
+        - semiconductors
+        - Nvidia
+        - GPU
+        - "AI chip"
+        - "artificial intelligence"
+        - "supply chain"
+        - "electric vehicles"
+        - "rare earth"
+        - "crude oil"
+        - oil
+        - "natural gas"
+        - "gold prices"
+        - "copper prices"
+        - LNG
+        - Hormuz
+        - OPEC
+        - war
+        - airstrike
+        - airstrikes
+        - ceasefire
+        - "bank failure"
+        - "liquidity crisis"
+        - merger
+        - "profit warning"
     confirmation_min_confidence: 0.8
     weights: {scope: 0.30, strength: 0.35, credibility: 0.20, urgency: 0.15}
   market_close:

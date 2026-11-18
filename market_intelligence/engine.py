@@ -17,6 +17,8 @@ from types import SimpleNamespace
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
+from .analysis_admission import AnalysisAdmission
+
 LOG = logging.getLogger(__name__)
 CHANNEL_KEYS = {
     "feishu": ("FEISHU_WEBHOOK_URL",),
@@ -98,6 +100,7 @@ class MarketIntelligence:
     def __init__(self, settings: dict, upstream_config: dict, client=None, sender=None, now=None):
         self.settings = settings
         self.upstream_config = upstream_config
+        self.admission = AnalysisAdmission(settings)
         self.client = client
         self.sender = sender
         self.companies = []
@@ -189,6 +192,7 @@ class MarketIntelligence:
     def ingest(self, rss_data):
         stamp = self.now().isoformat()
         cutoff = self.now() - timedelta(days=int(self.settings.get("max_article_age_days", 2)))
+        categories = dict(self.db.execute("SELECT feed_id,category FROM feed_health")) if self.admission.enabled else {}
         for feed_id, items in rss_data.items.items():
             for item in items:
                 published_at = None
@@ -211,10 +215,17 @@ class MarketIntelligence:
                     continue
                 article_id = digest(url)
                 language = "zh" if any("\u4e00" <= char <= "\u9fff" for char in item.title) else "en"
-                self.db.execute("""INSERT OR IGNORE INTO articles
-                    (id,feed_id,title,url,published_at,collected_at,summary,language,source_name)
-                    VALUES (?,?,?,?,?,?,?,?,?)""",
-                    (article_id, feed_id, item.title, url, published_at, stamp, item.summary, language, getattr(item, "feed_name", feed_id)))
+                state = self.admission.state(feed_id, categories.get(feed_id), item.title, item.summary)
+                self.db.execute("""INSERT INTO articles
+                    (id,feed_id,title,url,published_at,collected_at,summary,language,source_name,analysis_state)
+                    VALUES (?,?,?,?,?,?,?,?,?,?)
+                    ON CONFLICT(url) DO UPDATE SET feed_id=excluded.feed_id,title=excluded.title,
+                        published_at=excluded.published_at,collected_at=excluded.collected_at,
+                        summary=excluded.summary,language=excluded.language,source_name=excluded.source_name,
+                        analysis_state=excluded.analysis_state
+                    WHERE articles.analysis_state='filtered' AND excluded.analysis_state='pending'""",
+                    (article_id, feed_id, item.title, url, published_at, stamp, item.summary, language,
+                     getattr(item, "feed_name", feed_id), state))
         self.db.commit()
 
     def ingest_hotlist(self, results, names):
@@ -278,18 +289,35 @@ class MarketIntelligence:
         ], temperature=0)
         return validate_analysis(parse_json(raw), article["url"], {c["id"] for c in candidates})
 
+    def _refresh_analysis_queue(self, cutoff):
+        # Re-evaluate unprocessed records when the configured filter changes.
+        rows = self.db.execute("""SELECT a.id,a.feed_id,h.category,a.title,a.summary,a.analysis_state
+            FROM articles a LEFT JOIN feed_health h USING (feed_id)
+            WHERE a.analysis_state IN ('pending','filtered') AND a.collected_at >= ?""", (cutoff,))
+        changes = []
+        for article_id, source, category, title, summary, previous in rows:
+            state = self.admission.state(source, category, title, summary)
+            if state != previous:
+                changes.append((state, article_id))
+        self.db.executemany(
+            "UPDATE articles SET analysis_state=? WHERE id=? AND analysis_state IN ('pending','filtered')", changes)
+        self.db.execute("""UPDATE articles SET analysis_state='expired'
+            WHERE analysis_state='pending' AND collected_at < ?""", (cutoff,))
+        self.db.commit()
+
     def analyze_pending(self):
         if self.client is None or not self.settings.get("event_analysis", {}).get("enabled", False):
             return
+        now = self.now()
+        cutoff = (now - timedelta(days=int(self.settings.get("max_article_age_days", 2)))).isoformat()
+        self._refresh_analysis_queue(cutoff)
         max_count = int(self.settings.get("max_articles_per_run", 30))
-        day_start = self.now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        day_start = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
         used = self.db.execute("SELECT count(*) FROM analysis_attempts WHERE attempted_at>=?", (day_start,)).fetchone()[0]
         daily_limit = int(self.settings.get("max_articles_per_day", 250))
         max_count = max(0, min(max_count, daily_limit - used))
         if not max_count:
             return
-        now = self.now()
-        cutoff = (now - timedelta(days=int(self.settings.get("max_article_age_days", 2)))).isoformat()
         recent = (now - timedelta(hours=1)).isoformat()
         # Keep recent news moving while using a quarter of each batch to drain older work.
         # Either queue can use the whole batch when the other has no eligible articles.

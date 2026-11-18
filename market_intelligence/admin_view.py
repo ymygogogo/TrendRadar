@@ -50,6 +50,7 @@ h3 { font-size:1rem; }
 .panel { padding:clamp(.85rem,2vw,1.3rem); min-width:0; }
 .stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.75rem; margin-block-end:.75rem; }
 .stats > div { padding:.8rem 1rem; }
+.queue-note { margin-block-end:.75rem; }
 dt { color:var(--muted); font-size:.9rem; }
 dd { margin:0; font-size:1.8rem; font-weight:700; color:var(--text); font-variant-numeric:tabular-nums; }
 dd small { font-size:.85rem; font-weight:400; color:var(--muted); }
@@ -126,7 +127,11 @@ def render_overview(snapshot):
         for title, summary, priority, score, verified, stamp in snapshot.get("recent_events", [])
     )
     recent = f'<ul class="events">{rows}</ul>' if rows else '<p class="muted">过去 24 小时暂无 P0 / P1 事件。</p>'
-    return f'<dl class="stats">{cards}</dl><div class="panel"><h3>近 24 小时重点事件</h3>{recent}</div>'
+    excluded = articles.get("filtered", 0)
+    expired = articles.get("expired", 0)
+    archived = (f'<p class="muted queue-note">仅存档 {excluded:,} 篇 · 已过期 {expired:,} 篇</p>'
+                if excluded or expired else "")
+    return f'<dl class="stats">{cards}</dl>{archived}<div class="panel"><h3>近 24 小时重点事件</h3>{recent}</div>'
 
 
 def render_sources(snapshot):
