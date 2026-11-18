@@ -1,0 +1,35 @@
+name: Deploy PVE runtime configuration
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: trendradar-pve-runtime
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'ymygogogo/TrendRadar' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Encrypt runtime configuration for the VM
+        env:
+          MODEL_KEY: ${{ secrets.MODEL_KEY }}
+          CHART_BOT: ${{ secrets.CHART_BOT }}
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 deploy/pve/runtime_config.py seal "$RUNNER_TEMP/runtime.env.enc"
+      - name: Publish encrypted configuration
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view pve-runtime >/dev/null 2>&1; then
+            gh release upload pve-runtime "$RUNNER_TEMP/runtime.env.enc" --clobber
+          else
+            gh release create pve-runtime "$RUNNER_TEMP/runtime.env.enc" --target "$GITHUB_SHA" --prerelease --title 'PVE encrypted runtime configuration' --notes 'Encrypted for the TrendRadar VM using its dedicated public certificate.'
+          fi

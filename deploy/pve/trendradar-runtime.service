@@ -1,0 +1,8 @@
+[Unit]
+Description=Apply encrypted TrendRadar runtime configuration from GitHub
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+[Service]
+Type=oneshot
+ExecStart=/opt/trendradar/runtime-update.sh
