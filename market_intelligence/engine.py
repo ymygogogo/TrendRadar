@@ -502,6 +502,33 @@ class MarketIntelligence:
                 if self._deliver(key, 1, channel, "\n".join(lines), heading):
                     print(f"[A 股简报] {slot.isoformat()} 已通过 {channel} 发送 {len(rows)} 条")
 
+    def dispatch_weekly_calendar(self):
+        from .weekly_calendar import upcoming_events, weekly_time
+
+        _, channels = self._policy()
+        now = self.now()
+        slot_text = weekly_time(self.settings)
+        if not channels or not slot_text or now.weekday() != 6:
+            return
+        hour, minute = map(int, slot_text.split(":"))
+        slot = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if not slot <= now < slot + timedelta(minutes=15):
+            return
+        path = self.settings.get("digest", {}).get("weekly_events_path", "config/market_events_calendar.yaml")
+        start, events = upcoming_events(path, now)
+        if events is None:
+            print(f"[下周财经事件日历] {start} 缺少覆盖该周的已核验日程")
+            return
+        if not events:
+            print(f"[下周财经事件日历] {start} 暂无已收录日程")
+            return
+        lines = [f"下周财经事件日历｜{start:%m-%d} 起 · 北京时间"]
+        lines.extend(f"- {when:%m-%d %H:%M} {title} [官方日程]({source})"
+                     for when, title, source in events[:10])
+        for channel in channels:
+            self._deliver("calendar:" + start.isoformat(), 1, channel,
+                          "\n".join(lines), "下周财经事件日历")
+
     def maintain(self):
         cutoff = (self.now() - timedelta(days=int(self.settings.get("retention_days", 30)))).isoformat()
         self.db.execute("DELETE FROM analysis_attempts WHERE attempted_at<?", (cutoff,))
