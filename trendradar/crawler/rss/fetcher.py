@@ -13,6 +13,7 @@ from typing import List, Dict, Optional, Tuple
 import requests
 
 from .parser import RSSParser
+from .links import parse_article_index
 from trendradar.storage.base import RSSItem, RSSData
 from trendradar.utils.time import get_configured_time, is_within_days, DEFAULT_TIMEZONE
 
@@ -26,6 +27,8 @@ class RSSFeedConfig:
     max_items: int = 0          # 最大条目数（0=不限制）
     enabled: bool = True        # 是否启用
     max_age_days: Optional[int] = None  # 文章最大年龄（天），覆盖全局设置；None=使用全局，0=禁用过滤
+    article_path_pattern: str = ""  # Official HTML index adapter when no feed is available
+    proxy_url: Optional[str] = None  # None=继承 RSS 代理；空串=直连；URL=本源专用代理
 
 
 class RSSFetcher:
@@ -66,6 +69,8 @@ class RSSFetcher:
 
         self.parser = RSSParser()
         self.session = self._create_session()
+        self._feed_sessions: Dict[str, requests.Session] = {}
+        self.health: Dict[str, Dict] = {}
 
     def _create_session(self) -> requests.Session:
         """创建请求会话"""
@@ -95,10 +100,19 @@ class RSSFetcher:
             (条目列表, 错误信息) 元组
         """
         try:
+            session = self.session
+            if feed.proxy_url is not None:
+                if feed.proxy_url not in self._feed_sessions:
+                    override = self._create_session()
+                    override.trust_env = False
+                    override.proxies = ({"http": feed.proxy_url, "https": feed.proxy_url}
+                                        if feed.proxy_url else {})
+                    self._feed_sessions[feed.proxy_url] = override
+                session = self._feed_sessions[feed.proxy_url]
             # 瞬时请求故障只额外尝试一次，不增加等待。
             for attempt in range(2):
                 try:
-                    response = self.session.get(feed.url, timeout=self.timeout)
+                    response = session.get(feed.url, timeout=self.timeout)
                     response.raise_for_status()
                     break
                 except requests.RequestException as e:
@@ -118,7 +132,11 @@ class RSSFetcher:
                     ):
                         raise
 
-            parsed_items = self.parser.parse(response.text, feed.url)
+            if feed.article_path_pattern:
+                response.encoding = response.apparent_encoding or response.encoding
+                parsed_items = parse_article_index(response.text, response.url, feed.article_path_pattern)
+            else:
+                parsed_items = self.parser.parse(response.text, response.url)
 
             # 限制条目数量（0=不限制）
             if feed.max_items > 0:
@@ -196,7 +214,14 @@ class RSSFetcher:
                 jitter = random.uniform(-0.2, 0.2) * interval
                 time.sleep(interval + jitter)
 
+            started = time.monotonic()
             items, error = self.fetch_feed(feed)
+            self.health[feed.id] = {
+                "id": feed.id, "name": feed.name, "url": feed.url,
+                "duration_ms": round((time.monotonic() - started) * 1000),
+                "success": error is None, "error": error or "",
+                "latest_published_at": max((x.published_at for x in items if x.published_at), default=""),
+            }
 
             id_to_name[feed.id] = feed.name
 
@@ -267,6 +292,8 @@ class RSSFetcher:
                 max_items=feed_config.get("max_items", 0),  # 0=不限制
                 enabled=feed_config.get("enabled", True),
                 max_age_days=max_age_days,  # None=使用全局，0=禁用，>0=覆盖
+                proxy_url=feed_config.get("proxy_url"),
+                article_path_pattern=feed_config.get("article_path_pattern", ""),
             )
             if feed.id and feed.url:
                 feeds.append(feed)

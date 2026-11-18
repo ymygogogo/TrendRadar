@@ -1033,6 +1033,10 @@ class NewsAnalyzer:
                     max_items=feed_config.get("max_items", 50),
                     enabled=feed_config.get("enabled", True),
                     max_age_days=max_age_days,  # None=使用全局，0=禁用，>0=覆盖
+                    article_path_pattern=feed_config.get("article_path_pattern", ""),
+                    proxy_url=(os.getenv("MARKET_INTERNATIONAL_PROXY") or feed_config.get("proxy_url"))
+                    if feed_config.get("category", "").startswith("international_")
+                    else feed_config.get("proxy_url"),
                 )
                 if feed.id and feed.url and feed.enabled:
                     feeds.append(feed)
@@ -1065,6 +1069,10 @@ class NewsAnalyzer:
 
             # 抓取数据
             rss_data = fetcher.fetch_all()
+
+            self._market_rss = (rss_data, fetcher.health, {
+                feed["id"]: feed.get("category", "media") for feed in rss_feeds if feed.get("id")
+            })
 
             self._rss_source_total = len(feeds)
             self._rss_source_failed = len(rss_data.failed_ids)
@@ -1608,6 +1616,29 @@ class NewsAnalyzer:
 
         return html_file
 
+    def _run_market_intelligence(self, results, names):
+        settings = self.ctx.config.get("MARKET_INTELLIGENCE", {})
+        if not settings.get("enabled", False):
+            return
+        from market_intelligence import MarketIntelligence
+        from trendradar.ai.client import AIClient
+
+        ai = self.ctx.config.get("AI", {})
+        client = AIClient(ai) if settings.get("event_analysis", {}).get("enabled") and ai.get("API_KEY") else None
+        extension = MarketIntelligence(settings, self.ctx.config, client=client)
+        try:
+            rss_data, health, categories = self._market_rss
+            extension.record_health(health, categories)
+            if rss_data is not None:
+                extension.ingest(rss_data)
+            extension.ingest_hotlist(results, names)
+            extension.analyze_pending()
+            extension.dispatch_urgent()
+            extension.dispatch_digest()
+            extension.maintain()
+        finally:
+            extension.close()
+
     def run(self) -> None:
         """执行分析流程"""
         try:
@@ -1620,7 +1651,12 @@ class NewsAnalyzer:
             results, id_to_name, failed_ids = self._crawl_data()
 
             # 抓取 RSS 数据（如果启用），返回统计条目、新增条目和原始条目
+            self._market_rss = (None, {}, {})
             rss_items, rss_new_items, raw_rss_items, rss_new_urls = self._crawl_rss_data()
+            try:
+                self._run_market_intelligence(results, id_to_name)
+            except Exception as exc:
+                print(f"[市场情报] 扩展运行失败: {type(exc).__name__}")
 
             # 执行模式策略，传递 RSS 数据用于合并推送
             self._execute_mode_strategy(

@@ -3922,3 +3922,7 @@ GPL-3.0 License
 [🔝 回到顶部](#trendradar)
 
 </div>
+
+## A 股事件情报与 PVE 部署
+
+[查看架构、配置、验收、升级与回退](docs/market-intelligence.md)。

@@ -1,0 +1,44 @@
+name: TrendRadar PVE
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked
+      - run: uv run --no-sync python -m compileall -q market_intelligence trendradar
+      - run: uv run --with pytest python -m pytest -q tests
+  publish:
+    if: github.repository == 'ymygogogo/TrendRadar' && github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: trendradar-pve-release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build and test the release image
+        run: |
+          set -euo pipefail
+          docker buildx build --platform linux/amd64 --load -f docker/Dockerfile -t "trendradar-pve:$GITHUB_SHA" .
+          docker run --rm --entrypoint python "trendradar-pve:$GITHUB_SHA" -c "from market_intelligence import MarketIntelligence; from trendradar.core import load_config; load_config()"
+      - name: Publish immutable build files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="pve-$GITHUB_SHA"
+          if gh release view "$tag" >/dev/null 2>&1; then exit 0; fi
+          docker save "trendradar-pve:$GITHUB_SHA" | gzip -1 > trendradar-image.tar.gz
+          sha256sum trendradar-image.tar.gz > SHA256SUMS
+          docker image inspect --format '{{.Id}}' "trendradar-pve:$GITHUB_SHA" > IMAGE_ID
+          gh release create "$tag" trendradar-image.tar.gz SHA256SUMS IMAGE_ID deploy/pve/compose.yaml --target "$GITHUB_SHA" --title "$tag" --notes "Verified PVE image for $GITHUB_SHA" --latest

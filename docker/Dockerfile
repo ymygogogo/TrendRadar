@@ -61,6 +61,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # 再复制项目代码并安装项目本身
 COPY docker/manage.py .
 COPY trendradar/ ./trendradar/
+COPY market_intelligence/ ./market_intelligence/
+COPY config/ ./config/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev
 

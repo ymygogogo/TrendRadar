@@ -575,6 +575,17 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
 
     # RSS 配置
     config["RSS"] = _load_rss_config(config_data)
+    market = config_data.get("market_intelligence", {})
+    for env, section in (
+        ("MARKET_ENABLED", None),
+        ("MARKET_ANALYSIS_ENABLED", "event_analysis"),
+        ("MARKET_NOTIFICATION_ENABLED", "notification"),
+    ):
+        override = _get_env_bool(env)
+        if override is not None:
+            target = market if section is None else market.setdefault(section, {})
+            target["enabled"] = override
+    config["MARKET_INTELLIGENCE"] = market
 
     # AI 模型共享配置
     config["AI"] = _load_ai_config(config_data)
