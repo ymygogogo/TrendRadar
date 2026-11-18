@@ -200,7 +200,7 @@ def render_dashboard(settings, fields, token, message, snapshot):
 <span class="brand">TrendRadar 管理</span>
 <nav aria-label="页面导航">
 <a href="#overview">总览</a><a href="#channels">渠道</a><a href="#settings">设置</a>
-<a href="http://tr.yumy.space/">新闻报告</a>
+<a href="/news/">新闻报告</a>
 </nav></div></header>
 <main>
 <section id="overview" aria-labelledby="overview-title">
@@ -223,3 +223,79 @@ def render_dashboard(settings, fields, token, message, snapshot):
 </section>
 </main>
 </body></html>""".encode()
+
+
+def _evidence_link(url, label):
+    from .digests import safe_url
+
+    return f'<a href="{escape(url)}" rel="noreferrer">{label}</a>' if safe_url(url) else ""
+
+
+def _digest_event(event, number):
+    from .digests import DIRECTIONS_ZH
+    from .news_topics import TOPIC_LABELS
+
+    tier = {"watch": " · 观察", "extended": " · 补录"}.get(event["tier"], "")
+    stock_rows = "".join(
+        f'<li><strong>{escape(stock["name"])} {escape(stock["code"])}</strong> · '
+        f'{escape("、".join(stock["sectors"]))} · {escape(stock["business"])} '
+        f'{_evidence_link(stock["source"], "公司业务证据")}</li>'
+        for stock in event["companies"]
+    )
+    stocks = f'<ul>{stock_rows}</ul>' if stock_rows else "<p>暂无已核实的相关股票</p>"
+    sector_rows = "".join(
+        f'<li><strong>{escape(sector["sector"])}</strong> · '
+        f'{DIRECTIONS_ZH.get(sector["direction"], "影响不明确")} · {escape(sector["reason"])}</li>'
+        for sector in event["sectors"]
+    )
+    sectors = f'<ul>{sector_rows}</ul>' if sector_rows else "<p>暂无明确关联板块</p>"
+    source = _evidence_link(event["source"], "新闻原文")
+    concepts = escape("、".join(event.get("concepts", []))) or "暂无明确关联概念"
+    topic = TOPIC_LABELS.get(event.get("topic"))
+    heat = ""
+    if topic:
+        heat = f"{topic} · 热度 {event['heat']} · {event['outlet_count']} 家来源"
+        if event["hotlist_rank"] is not None:
+            heat += f" · 近期榜单最高第 {event['hotlist_rank']} 名"
+        heat = f'<p class="muted">{heat}</p>'
+    return f"""<article class="panel brief-event">
+<h2>{number}. {escape(event['title'])}</h2>
+{heat}<p class="muted">{escape(event['priority'])}{tier} · A 股影响评分 {event['score']} 分 ·
+{VERIFICATION_STATES.get(event['verification'], '待核实')} · 最近报道 {local_time(event['reported_at'], full=True)}</p>
+<h3>事件事实</h3><p>{escape(event['summary'])} {source}</p>
+<h3>A 股潜在影响</h3><p>{DIRECTIONS_ZH.get(event['direction'], '影响不明确')} · {escape(event['impact'] or '暂无足够证据')}</p>
+<h3>相关概念与板块</h3><p>{concepts}</p>{sectors}
+<h3>相关股票与证据</h3>{stocks}
+</article>"""
+
+
+def render_digest(edition):
+    entries = "".join(_digest_event(event, number) for number, event in enumerate(edition["events"], 1))
+    actual = len(edition["events"])
+    missing = max(0, edition["target"] - actual)
+    status = f"收录 {actual} 条"
+    if missing:
+        status += f" · 距目标还差 {missing} 条"
+    closing = ""
+    if edition.get("closing"):
+        from .market_close import SOURCE
+
+        closing_rows = "".join(
+            f'<li>{escape(line.removeprefix("- ").split("[上交所]", 1)[0])}</li>'
+            for line in edition["closing"] if not line.startswith("同日市场对照")
+        )
+        closing = ('<section class="panel brief-event"><h2>当日收盘指数</h2>'
+                   f'<ul>{closing_rows}</ul>{_evidence_link(SOURCE, "上交所指数来源")}</section>')
+    return f"""<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{escape(edition['title'])} · TrendRadar</title><style>{STYLE}
+.brief {{ max-width:61rem; }}
+.brief-event {{ margin-block:1rem; overflow-wrap:anywhere; }}
+.brief-event h3 {{ margin-block:.85rem .15rem; color:var(--accent); }}
+.brief-event ul {{ margin-block:0; padding-inline-start:1.3rem; }}
+.brief-event li {{ margin-block:.25rem; }}
+</style></head><body>
+<header class="top"><div class="bar"><a href="/admin/">返回 TrendRadar 管理</a></div></header>
+<main class="brief"><h1>{escape(edition['title'])}</h1>
+<p class="muted">{local_time(edition['created_at'], full=True)} · 北京时间 · {status}</p>
+{entries}{closing}</main></body></html>""".encode()

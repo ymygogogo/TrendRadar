@@ -115,7 +115,7 @@ def test_unverified_p0_goes_to_digest_once(tmp_path):
     e.run(data(item), diagnostics("bbc-world"), {"bbc-world": "international_media"})
     e.dispatch_digest()
     assert len(sends) == 1
-    assert "事件简报" in sends[0]
+    assert "热点新闻简报" in sends[0]
     assert e.db.execute("SELECT verification_status FROM events").fetchone()[0] == "unverified"
     e.close()
 
@@ -174,13 +174,17 @@ def test_official_index_only_accepts_matching_same_host_article_links():
     ]
 
 
-def test_digest_filters_p2_and_retries_p1_after_restart(tmp_path):
+def test_digest_filters_irrelevant_p2_and_retries_p1_after_restart(tmp_path):
     from datetime import timedelta
 
     class ScoreClient(FakeClient):
         def chat(self, messages, **kwargs):
             obj = json.loads(super().chat(messages, **kwargs))
             score = 75 if "eligible" in obj["summary_zh"] else 45
+            if score < 70:
+                obj["direction"] = "unclear"
+                obj["sectors"] = []
+                obj["categories"] = ["entertainment"]
             obj["score_dimensions"] = dict.fromkeys(obj["score_dimensions"], score)
             return json.dumps(obj)
 
@@ -306,8 +310,12 @@ def test_company_associations_are_derived_from_evidence_not_model(tmp_path):
                diagnostics("bbc-world"))
     result = json.loads(engine.db.execute("SELECT analysis_json FROM events").fetchone()[0])
     assert {item["code"] for item in result["related_companies"]} == {"002371.SZ", "688012.SH"}
-    assert "https://www.naura.com/" in messages[0]
-    assert "中芯国际" not in messages[0]
+    from market_intelligence.digests import stored_edition
+    key = f"digest:{evening.replace(second=0, microsecond=0).isoformat()}"
+    companies = stored_edition(engine.db, key)["events"][0]["companies"]
+    assert any(item["source"].startswith("https://www.naura.com/") for item in companies)
+    assert all(item["name"] != "中芯国际" for item in companies)
+    assert "芯片出口限制" in messages[0]
     engine.close()
 
 

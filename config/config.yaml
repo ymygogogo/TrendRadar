@@ -241,7 +241,10 @@ market_intelligence:
     weekly_events_path: "config/market_events_calendar.yaml"
     calendar_path: "config/cn_trading_calendar.yaml"
     max_events: 8
-    include_p2: false
+    publisher_groups:
+      BBC: ["bbc-world", "bbc-business"]
+      财联社: ["cls-telegraph", "cls-hot"]
+      华尔街见闻: ["wallstreetcn", "wallstreetcn-hot"]
   max_article_age_days: 2
   event_window_days: 14
   event_analysis:
@@ -250,6 +253,7 @@ market_intelligence:
     urgent_priority_score: 85
     admission:
       enabled: true
+      include_news_topics: true
       record_only_sources: ["hacker-news"]
       always_analyze_categories: ["domestic_official", "international_official"]
       # 媒体标题或摘要出现任一监控主题时，进入 AI 队列。上游报告及原始记录仍可查。
