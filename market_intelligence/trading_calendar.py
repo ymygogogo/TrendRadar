@@ -49,4 +49,9 @@ def cron_entries(settings):
             execute = slot + timedelta(minutes=delay)
             if execute.date() == slot.date():
                 entries.append(f"{execute.minute} {execute.hour} * * 0 cd /app && python -m market_intelligence weekly-calendar")
+    sampling = settings.get("market_close", {})
+    if sampling.get("enabled"):
+        for value in sampling.get("sample_times", []):
+            slot = datetime.strptime(value, "%H:%M")
+            entries.append(f"{slot.minute} {slot.hour} * * * cd /app && python -m market_intelligence market-close")
     return entries

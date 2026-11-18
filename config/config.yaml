@@ -250,6 +250,11 @@ market_intelligence:
     urgent_priority_score: 85
     confirmation_min_confidence: 0.8
     weights: {scope: 0.30, strength: 0.35, credibility: 0.20, urgency: 0.15}
+  market_close:
+    enabled: true
+    index_codes: ["000001", "000680", "000688"]
+    sample_times: ["17:30"]
+    display_slots: ["15:30", "21:30"]
   market_mapping:
     sector_analysis: true
     company_analysis: true

@@ -76,7 +76,11 @@ def trading_command(command, slot):
         try:
             if command == "weekly-calendar":
                 engine.dispatch_weekly_calendar()
+            elif command == "market-close":
+                engine.collect_market_close()
             else:
+                if slot in settings.get("market_close", {}).get("display_slots", []):
+                    engine.collect_market_close()
                 engine.dispatch_digest(trading_slot=slot)
         finally:
             engine.close()
@@ -85,13 +89,13 @@ def trading_command(command, slot):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["check-sources", "health", "digest-cron", "trading-digest", "weekly-calendar"])
+    parser.add_argument("command", choices=["check-sources", "health", "digest-cron", "trading-digest", "weekly-calendar", "market-close"])
     parser.add_argument("--database", default="output/market_intelligence.db")
     parser.add_argument("--slot", help="Configured trading digest time in HH:MM")
     args = parser.parse_args()
     if args.command == "trading-digest" and args.slot is None:
         parser.error("trading-digest requires --slot")
-    if args.command in {"digest-cron", "trading-digest", "weekly-calendar"}:
+    if args.command in {"digest-cron", "trading-digest", "weekly-calendar", "market-close"}:
         return trading_command(args.command, args.slot)
     return check_sources() if args.command == "check-sources" else health(args.database)
 
