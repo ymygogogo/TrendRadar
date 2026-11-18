@@ -135,3 +135,23 @@ def test_hotlist_evidence_ranks_non_market_technology_and_deduplicates_publisher
         assert [event["event_id"] for event in all_recent] == ["hot-tech", "investment"]
     finally:
         engine.close()
+
+
+def test_digest_reserves_top_item_per_available_topic(tmp_path):
+    engine = MarketIntelligence({"database_path": str(tmp_path / "coverage.db"),
+                                 "market_mapping": {"company_analysis": True}}, {}, now=lambda: NOW)
+    try:
+        for index in range(8):
+            add_event(engine.db, f"economy{index}", 70, 1 + index / 10, title="金融通胀新闻")
+        add_event(engine.db, "tech-new", 25, 5, actionable=False, title="芯片技术突破")
+        add_event(engine.db, "tech-old", 25, 8, actionable=False, title="航天科技")
+        add_event(engine.db, "world", 50, 6, title="国际地震救援")
+        events = digests.select_events(engine.db, engine.settings, engine.companies, NOW, NOW - timedelta(hours=24))
+        assert len(events) == 8
+        assert {event["topic"] for event in events} == {"tech", "economy", "world"}
+        assert [event["event_id"] for event in events[-2:]] == ["tech-new", "world"]
+        assert [item["code"] for item in digests.match_companies(engine.companies, [{"sector": "银行"}])] == [
+            "601398.SH"
+        ]
+    finally:
+        engine.close()

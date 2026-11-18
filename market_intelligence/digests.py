@@ -130,6 +130,19 @@ def _heat_signals(db, event_id, published, now, publishers):
     return {"heat": round(coverage + freshness + rank_score), "outlet_count": len(outlets), "hotlist_rank": best}
 
 
+def _cover_topics(ranked, limit):
+    representatives = {}
+    remaining = []
+    for rank, event in sorted(ranked):
+        topic = event["topic"]
+        if topic in representatives:
+            remaining.append((rank, event))
+        else:
+            representatives[topic] = (rank, event)
+    chosen = list(representatives.values()) + remaining[:limit - len(representatives)]
+    return [event for _, event in sorted(chosen)]
+
+
 def select_events(db, settings, companies, now, start):
     configured = settings.get("digest", {})
     threshold = int(settings.get("event_analysis", {}).get("min_priority_score", 70))
@@ -174,7 +187,7 @@ def select_events(db, settings, companies, now, start):
         rank = (-signals["heat"], -published, row["id"])
         buckets[tier].append((rank, _event_details(row, data, tier, topic, signals, companies)))
 
-    main = [item for _, item in sorted(buckets["main"])[:max_events]]
+    main = _cover_topics(buckets["main"], max_events)
     for tier in ("watch", "extended"):
         main.extend(item for _, item in sorted(buckets[tier])[:max(0, MIN_EVENTS - len(main))])
     return main

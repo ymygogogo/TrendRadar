@@ -35,3 +35,8 @@ companies:
     sectors: [券商, 证券经纪, 证券行业, 证券投行, 证券融资融券]
     business: 开展证券经纪、投资银行、融资融券及资产管理业务。
     source: https://statics.citics.com/website/report/2026/web/e-book/web/index.html
+  - code: 601398.SH
+    name: 工商银行
+    sectors: [银行, 银行业, 商业银行, 银行信贷]
+    business: 为企业和个人提供存款、信贷及其他商业银行金融服务。
+    source: https://www.icbc-ltd.com/page/1211087084094599168.html
