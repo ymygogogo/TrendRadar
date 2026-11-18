@@ -172,3 +172,41 @@ def test_official_index_only_accepts_matching_same_host_article_links():
     assert [(item.title, item.url, item.published_at) for item in items] == [
         ("重点政策发布", "https://official.test/news/t20261118_100.html", None)
     ]
+
+
+def test_digest_filters_p2_and_retries_p1_after_restart(tmp_path):
+    from datetime import timedelta
+
+    class ScoreClient(FakeClient):
+        def chat(self, messages, **kwargs):
+            obj = json.loads(super().chat(messages, **kwargs))
+            score = 75 if "eligible" in obj["summary_zh"] else 45
+            obj["score_dimensions"] = dict.fromkeys(obj["score_dimensions"], score)
+            return json.dumps(obj)
+
+    evening = NOW.replace(hour=21, minute=30)
+    clock = [evening - timedelta(minutes=30)]
+    sends = []
+
+    def sender(channel, body):
+        sends.append(body)
+        return len(sends) != 1
+
+    cfg = settings(tmp_path)
+    feed = "bbc-world"
+    e = MarketIntelligence(cfg, {}, ScoreClient(), sender, lambda: clock[0])
+    e.run(data(article("eligible", "https://bbc.example/p1", feed),
+               article("excluded", "https://bbc.example/p2", feed)), diagnostics(feed))
+    assert not sends
+    clock[0] = evening
+    e.dispatch_digest()
+    assert e.db.execute("SELECT state FROM deliveries").fetchone()[0] == "failed"
+    e.close()
+    clock[0] += timedelta(minutes=30)
+    e = MarketIntelligence(cfg, {}, ScoreClient(), sender, lambda: clock[0])
+    e.dispatch_digest()
+    e.dispatch_digest()
+    assert len(sends) == 2
+    assert all("https://bbc.example/p1" in body and "https://bbc.example/p2" not in body for body in sends)
+    assert e.db.execute("SELECT state FROM deliveries").fetchone()[0] == "delivered"
+    e.close()

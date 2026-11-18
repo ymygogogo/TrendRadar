@@ -42,3 +42,17 @@ jobs:
           sha256sum trendradar-image.tar.gz > SHA256SUMS
           docker image inspect --format '{{.Id}}' "trendradar-pve:$GITHUB_SHA" > IMAGE_ID
           gh release create "$tag" trendradar-image.tar.gz SHA256SUMS IMAGE_ID deploy/pve/compose.yaml --target "$GITHUB_SHA" --title "$tag" --notes "Verified PVE image for $GITHUB_SHA" --latest
+  deploy:
+    needs: publish
+    runs-on: trendradar-runtime-pve
+    environment: trendradar-pve
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Deploy this image and wait for its health check
+        env:
+          PVE_DEPLOY_KEY: ${{ secrets.PVE_DEPLOY_KEY }}
+          PVE_DEPLOY_KNOWN_HOSTS: ${{ vars.PVE_DEPLOY_KNOWN_HOSTS }}
+        run: bash deploy/pve/ci-deploy.sh image "$GITHUB_SHA"

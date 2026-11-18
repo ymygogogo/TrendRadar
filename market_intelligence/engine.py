@@ -432,6 +432,7 @@ class MarketIntelligence:
                 ORDER BY score DESC, updated_at DESC LIMIT ?""",
                 ((slot - timedelta(days=1)).isoformat(), now.isoformat(), min_score, int(config.get("max_events", 8)))).fetchall()
             if not rows:
+                print(f"[A 股简报] {slot.isoformat()} 暂无达标事件")
                 continue
             lines = ["A 股事件简报 " + slot.strftime("%m-%d %H:%M")]
             for event in rows:
@@ -439,7 +440,8 @@ class MarketIntelligence:
                 lines.append(f"- {event['title_zh'][:70]}（{event['score']}分，{event['verification_status']}）" +
                              (f" [来源]({source[0]})" if source else ""))
             for channel in channels:
-                self._deliver(key, 1, channel, "\n".join(lines), "A 股事件简报")
+                if self._deliver(key, 1, channel, "\n".join(lines), "A 股事件简报"):
+                    print(f"[A 股简报] {slot.isoformat()} 已通过 {channel} 发送 {len(rows)} 条")
 
     def maintain(self):
         cutoff = (self.now() - timedelta(days=int(self.settings.get("retention_days", 30)))).isoformat()
