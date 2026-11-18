@@ -52,3 +52,5 @@ sudo journalctl -u trendradar-update.service
 在 fork 的 Actions Repository secrets 设置 `MODEL_KEY` 和 `CHART_BOT`。后者接受企业微信群机器人 Webhook 或其 key。到 Actions 在 `master` 上手动运行 **Deploy PVE runtime configuration**。工作流使用 VM 的公开证书生成加密配置，独立的预发布 `pve-runtime` 存放密文。VM 的私钥留在 `/opt/trendradar/runtime-identity/private.pem`。更换 VM 时需要生成新证书、更新仓库中的公开证书并重新运行工作流。
 
 VM 每五分钟检查一次。更新器先验证 AlayaNew Key 能读取模型列表且当前模型可用，再备份现有配置、替换环境文件并重建容器。失败时恢复原配置。可用 `journalctl -u trendradar-runtime.service` 检查结果。部署只在本机检查企微配置和容器健康，通过生产定时任务观察实际投递。
+
+手动发布也可传入独立的一次性 PVE runner 标签 `trendradar-runtime-<唯一后缀>`。标签留空时使用 GitHub 托管 runner。只给本次发布分配该标签，发布完成后移除 runner 和执行环境。
