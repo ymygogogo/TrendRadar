@@ -9,7 +9,19 @@ metadata=$(curl --retry 2 --max-time 40 -fsS "https://api.github.com/repos/$repo
 tag=$(jq -er '.tag_name' <<<"$metadata")
 [[ $tag =~ ^pve-([a-f0-9]{40})$ ]] || exit 0
 commit=${BASH_REMATCH[1]}
-if [[ -f image.env ]] && grep -Fxq "TREND_IMAGE=trendradar-pve:$commit" image.env; then exit 0; fi
+if [[ -f image.env ]]; then
+    current_ref=$(grep -E '^TREND_IMAGE=trendradar-pve:[a-f0-9]{40}$' image.env || true)
+    if [[ $current_ref =~ ([a-f0-9]{40})$ ]]; then
+        current_commit=${BASH_REMATCH[1]}
+        if [[ "$current_commit" == "$commit" ]]; then exit 0; fi
+        relation=$(curl --connect-timeout 8 --max-time 20 -fsS \
+            "https://api.github.com/repos/$repo/compare/$current_commit...$commit" | jq -er '.status')
+        if [[ "$relation" != ahead ]]; then
+            echo "Release $commit skipped: GitHub comparison is $relation relative to $current_commit"
+            exit 0
+        fi
+    fi
+fi
 if [[ -f failed-release ]] && grep -Fxq "$tag" failed-release; then exit 0; fi
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
