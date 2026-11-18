@@ -8,7 +8,6 @@ image=ghcr.io/actions/actions-runner:2.338.2
 credential_files=(.runner .credentials .credentials_rsaparams)
 install -d -m 700 "$state"
 exec 9>"$state/lock"
-flock -n 9
 
 cleanup() {
     docker rm -f "$name" >/dev/null 2>&1 || true
@@ -46,7 +45,31 @@ start_container() {
 }
 
 case "${1:-}" in
+    stop)
+        # Killing the container leaves a stale broker session. Signal the listener
+        # and give it time to delete the session before the run process cleans up.
+        if ! docker container inspect "$name" >/dev/null 2>&1; then exit 0; fi
+        test "$(docker inspect -f '{{index .Config.Labels "io.trendradar.runner"}}' "$name")" = managed
+        docker exec "$name" python3 -c '
+import os
+from pathlib import Path
+import signal
+for entry in Path("/proc").glob("[0-9]*/comm"):
+    try:
+        if entry.read_text().strip() == "Runner.Listener":
+            os.kill(int(entry.parent.name), signal.SIGINT)
+    except (FileNotFoundError, ProcessLookupError):
+        pass
+' || true
+        for ((elapsed=0; elapsed<28; elapsed++)); do
+            if ! docker container inspect "$name" >/dev/null 2>&1; then exit 0; fi
+            sleep 1
+        done
+        echo "TrendRadar runner did not stop gracefully before the deadline" >&2
+        cleanup
+        ;;
     register)
+        flock -n 9
         test ! -e "$state/.runner"
         start_container
         docker exec -i -w /home/runner "$name" /bin/bash -c '
@@ -61,6 +84,7 @@ case "${1:-}" in
         chmod 600 "${credential_files[@]/#/$state/}"
         ;;
     run)
+        flock -n 9
         for file in "${credential_files[@]}"; do test -s "$state/$file"; done
         start_container
         tar -cf - -C "$state" "${credential_files[@]}" |
@@ -68,5 +92,5 @@ case "${1:-}" in
         docker exec -e PATH=/tmp/trendradar-tools:/usr/local/bin:/usr/bin:/bin \
             -w /home/runner "$name" ./run.sh --once
         ;;
-    *) printf 'Specify register or run\n' >&2; exit 2 ;;
+    *) printf 'Specify register, run, or stop\n' >&2; exit 2 ;;
 esac
