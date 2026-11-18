@@ -175,9 +175,11 @@ class AdminRequest(BaseHTTPRequestHandler):
             with self.server.save_lock:
                 operator_settings.write(self.server.settings_path, values, self.server.base)
         except (ValueError, KeyError):
-            self.reply(400, render(self.server.settings(), self.server.token, "设置无效，请检查数值范围和阈值顺序。"))
+            self.reply(400, render(self.server.settings(), self.server.token,
+                                   "设置无效，请检查数值范围和阈值顺序。", status.read(self.server.status_path)))
         else:
-            self.reply(200, render(self.server.settings(), self.server.token, "已保存，下轮任务生效。"))
+            self.reply(200, render(self.server.settings(), self.server.token,
+                                   "已保存，下轮任务生效。", status.read(self.server.status_path)))
 
 
 def main():
