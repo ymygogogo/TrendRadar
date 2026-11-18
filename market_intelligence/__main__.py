@@ -71,6 +71,7 @@ def trading_command(command, slot):
             print(entry)
     elif settings.get("enabled"):
         from .engine import MarketIntelligence
+        from .status import publish_current
 
         engine = MarketIntelligence(settings, config)
         try:
@@ -82,6 +83,7 @@ def trading_command(command, slot):
                 if slot in settings.get("market_close", {}).get("display_slots", []):
                     engine.collect_market_close()
                 engine.dispatch_digest(trading_slot=slot)
+            publish_current(engine)
         finally:
             engine.close()
     return 0

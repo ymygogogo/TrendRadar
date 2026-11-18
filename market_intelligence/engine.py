@@ -388,13 +388,27 @@ class MarketIntelligence:
                 f"不确定性：{'；'.join(data['uncertainties']) or '待进一步核实'}\n"
                 f"后续观察：{'；'.join(data['follow_up_signals']) or '待观察'}")
 
+    def _wework_url(self):
+        return os.environ.get("MARKET_WEWORK_WEBHOOK_URL") or self.upstream_config.get("WEWORK_WEBHOOK_URL", "")
+
+    def notification_status(self):
+        _, enabled = self._policy()
+        return {
+            channel: {
+                "enabled": channel in enabled,
+                "configured": bool(self._wework_url()) if channel == "wework" else
+                all(self.upstream_config.get(key) for key in keys),
+            }
+            for channel, keys in CHANNEL_KEYS.items()
+        }
+
     def _dispatch(self, channel, content, title="A 股重大事件预警"):
         if self.sender is not None:
             return bool(self.sender(channel, content))
         from trendradar.notification.dispatcher import NotificationDispatcher
         config = dict(self.upstream_config)
         if channel == "wework":
-            config["WEWORK_WEBHOOK_URL"] = os.environ.get("MARKET_WEWORK_WEBHOOK_URL") or config.get("WEWORK_WEBHOOK_URL", "")
+            config["WEWORK_WEBHOOK_URL"] = self._wework_url()
             if ";" in config["WEWORK_WEBHOOK_URL"]:
                 raise ValueError("use one WeCom group per deployment")
             config["WEWORK_MSG_TYPE"] = "markdown"
