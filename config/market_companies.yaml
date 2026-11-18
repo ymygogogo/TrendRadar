@@ -32,7 +32,7 @@ companies:
     source: https://www.zjky.cn/about/about_us.htm
   - code: 600030.SH
     name: 中信证券
-    sectors: [券商, 证券经纪, 证券行业, 证券投行, 证券融资融券]
+    sectors: [券商, 证券, 证券经纪, 证券行业, 证券投行, 证券融资融券]
     business: 开展证券经纪、投资银行、融资融券及资产管理业务。
     source: https://statics.citics.com/website/report/2026/web/e-book/web/index.html
   - code: 601398.SH
@@ -40,3 +40,8 @@ companies:
     sectors: [银行, 银行业, 商业银行, 银行信贷]
     business: 为企业和个人提供存款、信贷及其他商业银行金融服务。
     source: https://www.icbc-ltd.com/page/1211087084094599168.html
+  - code: 688256.SH
+    name: 寒武纪
+    sectors: [AI芯片, AI 芯片, 人工智能芯片, 云端智能芯片, AI加速卡, 算力芯片]
+    business: 研发人工智能芯片及云端智能加速卡。
+    source: https://static.sse.com.cn/stock/disclosure/announcement/c/202506/688256_20250604_5OJ3.pdf
