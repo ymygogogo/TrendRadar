@@ -1,0 +1,26 @@
+services:
+  trendradar:
+    image: ${TREND_IMAGE:?frozen image reference required}
+    pull_policy: never
+    restart: unless-stopped
+    env_file: runtime.env
+    environment:
+      TZ: Asia/Shanghai
+      LITELLM_LOCAL_MODEL_COST_MAP: "true"
+      RUN_MODE: cron
+      IMMEDIATE_RUN: "false"
+      MARKET_ENABLED: "true"
+      LOCAL_RETENTION_DAYS: "30"
+    volumes:
+      - ./output:/app/output
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -127,6 +127,72 @@ rss:
   # - 正整数：覆盖全局设置，只推送此天数内的文章
   # - 0：禁用此频道的新鲜度过滤，推送所有文章
   feeds:
+    - id: "nbs-releases"
+      name: "国家统计局最新发布"
+      category: "domestic_official"
+      url: "https://www.stats.gov.cn/sj/zxfb/rss.xml"
+      proxy_url: ""
+      max_items: 25
+    - id: "ndrc-releases"
+      name: "国家发改委新闻发布"
+      category: "domestic_official"
+      url: "https://www.ndrc.gov.cn/xwdt/xwfb/wap_index.html"
+      article_path_pattern: '/xwdt/xwfb/.*?/t[0-9]{8}_[0-9]+\.html$'
+      proxy_url: ""
+      max_items: 15
+    - id: "mof-news"
+      name: "财政部财经新闻"
+      category: "domestic_official"
+      url: "https://www.mof.gov.cn/zhengwuxinxi/caizhengxinwen/"
+      article_path_pattern: '/zhengwuxinxi/caizhengxinwen/.*?/t[0-9]{8}_[0-9]+\.htm$'
+      proxy_url: ""
+      max_items: 15
+    - id: "mofcom-releases"
+      name: "商务部新闻发布"
+      category: "domestic_official"
+      url: "https://www.mofcom.gov.cn/xwfb/"
+      article_path_pattern: '/xwfb/.+/art_[a-f0-9]+\.html$'
+      proxy_url: ""
+      max_items: 15
+
+    - id: "pbc-releases"
+      name: "中国人民银行新闻发布"
+      category: "domestic_official"
+      url: "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/index.html"
+      article_path_pattern: '/goutongjiaoliu/113456/113469/[0-9]{19}/index\.html$'
+      proxy_url: ""
+      max_items: 15
+
+    # 已于 2026-11-18 对下列官方/媒体 RSS 进行实时 HTTP 验证；运行期健康见 output/market_intelligence.db。
+    - id: "bbc-world"
+      name: "BBC World"
+      category: "international_media"
+      url: "https://feeds.bbci.co.uk/news/world/rss.xml"
+    - id: "bbc-business"
+      name: "BBC Business"
+      category: "international_media"
+      url: "https://feeds.bbci.co.uk/news/business/rss.xml"
+    - id: "guardian-world"
+      name: "The Guardian World"
+      category: "international_media"
+      url: "https://www.theguardian.com/world/rss"
+    - id: "aljazeera"
+      name: "Al Jazeera"
+      category: "international_media"
+      url: "https://www.aljazeera.com/xml/rss/all.xml"
+    - id: "federal-reserve"
+      name: "Federal Reserve"
+      category: "international_official"
+      url: "https://www.federalreserve.gov/feeds/press_all.xml"
+    - id: "eia-energy"
+      name: "US EIA Today in Energy"
+      category: "international_official"
+      url: "https://www.eia.gov/rss/todayinenergy.xml"
+    - id: "sec-press"
+      name: "US SEC Press Releases"
+      category: "international_official"
+      url: "https://www.sec.gov/news/pressreleases.rss"
+
     - id: "hacker-news"
       name: "Hacker News"
       url: "https://hnrss.org/frontpage"
@@ -152,6 +218,40 @@ rss:
 # ===============================================================
 # 4. 报告模式
 # ===============================================================
+# A 股事件情报扩展；默认仅记录来源健康与原始 RSS 新闻，绝不发送真实通知。
+# AI 和通知需单独开启。事件数据库持久化于 output/market_intelligence.db。
+market_intelligence:
+  enabled: false
+  market: "CN_A_SHARE"
+  timezone: "Asia/Shanghai"
+  database_path: "output/market_intelligence.db"
+  max_articles_per_run: 12
+  max_articles_per_day: 250
+  retention_days: 30
+  domestic_platforms: ["cls-hot", "wallstreetcn-hot", "thepaper", "eastmoney", "cls-telegraph"]
+  digest:
+    times: ["21:30"]
+    max_events: 8
+    include_p2: false
+  max_article_age_days: 2
+  event_window_days: 14
+  event_analysis:
+    enabled: false
+    min_priority_score: 70
+    urgent_priority_score: 85
+    confirmation_min_confidence: 0.8
+    weights: {scope: 0.30, strength: 0.35, credibility: 0.20, urgency: 0.15}
+  market_mapping:
+    sector_analysis: true
+    company_analysis: false
+  verification:
+    reject_unverified_urgent_alerts: true
+  notification:
+    enabled: false
+    channels: ["wework"]
+    max_per_hour: 3
+    cooldown_minutes: 60
+
 report:
   mode: "current"                     # 报告模式（开启 schedule 后作为默认值，会被 timeline 时段覆盖）
                                       # daily = 当日汇总，按时推送当天所有匹配新闻（会包含之前推过的）
