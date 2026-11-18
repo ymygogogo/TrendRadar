@@ -210,3 +210,35 @@ def test_digest_filters_p2_and_retries_p1_after_restart(tmp_path):
     assert all("https://bbc.example/p1" in body and "https://bbc.example/p2" not in body for body in sends)
     assert e.db.execute("SELECT state FROM deliveries").fetchone()[0] == "delivered"
     e.close()
+
+
+def test_new_articles_and_backlog_share_a_bounded_batch(tmp_path):
+    from datetime import timedelta
+
+    class RecordingClient(FakeClient):
+        def __init__(self):
+            self.articles = []
+
+        def chat(self, messages, **kwargs):
+            url = json.loads(messages[1]["content"])["article"]["url"]
+            self.articles.append(url)
+            return super().chat(messages, **kwargs)
+
+    cfg = settings(tmp_path)
+    cfg["max_articles_per_run"] = 4
+    clock = [NOW - timedelta(hours=2)]
+    client = RecordingClient()
+    engine = MarketIntelligence(cfg, {}, client, lambda *_: True, lambda: clock[0])
+    backlog = [article("old", f"https://old.example/{i}", "sec-press") for i in range(4)]
+    engine.ingest(data(*backlog))
+    engine.record_health(diagnostics("sec-press"), {"sec-press": "international_official"})
+    clock[0] = NOW
+    fresh = [article("recent", f"https://fresh.example/{i}", "bbc-world") for i in range(3)]
+    engine.ingest(data(*fresh))
+    engine.analyze_pending()
+    assert len(client.articles) == 4
+    assert sum(url.startswith("https://fresh.example/") for url in client.articles) == 3
+    engine.analyze_pending()
+    assert len(client.articles) == 7
+    assert engine.db.execute("SELECT count(*) FROM articles WHERE analysis_state='pending'").fetchone()[0] == 0
+    engine.close()
