@@ -1,26 +1,17 @@
 name: Deploy PVE runtime configuration
 on:
   workflow_dispatch:
-    inputs:
-      pve_runner_label:
-        description: Optional PVE runner label (blank uses trendradar-runtime-pve)
-        type: string
-        required: false
-  repository_dispatch:
-    types: [trendradar-runtime-deploy]
 permissions:
   contents: read
 concurrency:
-  group: trendradar-pve-runtime-v3
+  group: trendradar-pve-runtime-direct
   cancel-in-progress: false
 jobs:
-  publish:
-    if: >-
-      github.repository == 'ymygogogo/TrendRadar' && github.ref == 'refs/heads/master' &&
-      (github.event_name == 'repository_dispatch' || inputs.pve_runner_label == '' ||
-      startsWith(inputs.pve_runner_label, 'trendradar-runtime-'))
-    runs-on: ${{ inputs.pve_runner_label || 'trendradar-runtime-pve' }}
-    timeout-minutes: 8
+  publish-and-deploy:
+    if: github.repository == 'ymygogogo/TrendRadar' && github.ref == 'refs/heads/master'
+    runs-on: trendradar-runtime-pve
+    environment: trendradar-pve
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
@@ -45,3 +36,11 @@ jobs:
           else
             gh release create pve-runtime "$RUNNER_TEMP/runtime.env.enc" --target "$GITHUB_SHA" --prerelease --title 'PVE encrypted runtime configuration' --notes 'Encrypted for the TrendRadar VM using its dedicated public certificate.'
           fi
+      - name: Apply this encrypted configuration and wait for its health check
+        env:
+          PVE_DEPLOY_KEY: ${{ secrets.PVE_DEPLOY_KEY }}
+          PVE_DEPLOY_KNOWN_HOSTS: ${{ vars.PVE_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          digest=$(sha256sum "$RUNNER_TEMP/runtime.env.enc" | cut -d' ' -f1)
+          bash deploy/pve/ci-deploy.sh runtime "$digest"

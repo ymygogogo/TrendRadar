@@ -2,27 +2,63 @@
 set -euo pipefail
 umask 077
 cd /opt/trendradar
+[[ ! -r deploy-egress.env ]] || source ./deploy-egress.env
 exec 9>deploy.lock
-flock -n 9 || exit 0
+requested=${1:-}
 repo=ymygogogo/TrendRadar
-metadata=$(curl --retry 2 --max-time 40 -fsS "https://api.github.com/repos/$repo/releases/latest")
-tag=$(jq -er '.tag_name' <<<"$metadata")
-[[ $tag =~ ^pve-([a-f0-9]{40})$ ]] || exit 0
-commit=${BASH_REMATCH[1]}
+if [[ -n $requested ]]; then
+    [[ $requested =~ ^[a-f0-9]{40}$ ]] || exit 2
+    flock -w 120 9
+    commit=$requested
+    tag=pve-$commit
+else
+    flock -n 9 || exit 0
+    metadata=$(curl --retry 2 --max-time 40 -fsS "https://api.github.com/repos/$repo/releases/latest")
+    tag=$(jq -er '.tag_name' <<<"$metadata")
+    [[ $tag =~ ^pve-([a-f0-9]{40})$ ]] || exit 0
+    commit=${BASH_REMATCH[1]}
+fi
+
+verify_image() {
+    local container health expected
+    local image
+    container=$(docker compose --env-file image.env ps -q trendradar)
+    [[ -n $container ]] || return 1
+    read -r image health <<<"$(docker inspect --format '{{.Image}} {{.State.Health.Status}}' "$container")"
+    expected=$(docker image inspect --format '{{.Id}}' "trendradar-pve:$commit")
+    [[ $image == "$expected" && $health == healthy ]] || return 1
+    printf '%s\n' "$image"
+}
+
+receipt() {
+    local image=$1 temp
+    temp=$(mktemp "$PWD/.image.applied.XXXXXX")
+    printf '%s %s %s\n' "$commit" "$image" "$(date -u +%FT%TZ)" > "$temp"
+    mv "$temp" image.applied
+    printf 'Image deployed: %s %s (healthy)\n' "$commit" "$image"
+}
+
 if [[ -f image.env ]]; then
     current_ref=$(grep -E '^TREND_IMAGE=trendradar-pve:[a-f0-9]{40}$' image.env || true)
     if [[ $current_ref =~ ([a-f0-9]{40})$ ]]; then
         current_commit=${BASH_REMATCH[1]}
-        if [[ "$current_commit" == "$commit" ]]; then exit 0; fi
+        if [[ "$current_commit" == "$commit" ]]; then
+            if [[ -n $requested ]]; then
+                image=$(verify_image)
+                receipt "$image"
+            fi
+            exit 0
+        fi
         relation=$(curl --connect-timeout 8 --max-time 20 -fsS \
             "https://api.github.com/repos/$repo/compare/$current_commit...$commit" | jq -er '.status')
         if [[ "$relation" != ahead ]]; then
             echo "Release $commit skipped: GitHub comparison is $relation relative to $current_commit"
+            [[ -z $requested ]]
             exit 0
         fi
     fi
 fi
-if [[ -f failed-release ]] && grep -Fxq "$tag" failed-release; then exit 0; fi
+if [[ -z $requested && -f failed-release ]] && grep -Fxq "$tag" failed-release; then exit 0; fi
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 for asset in compose.yaml SHA256SUMS IMAGE_ID; do
@@ -60,7 +96,8 @@ if ! tar -C "$PWD" -czf "$backup/output.tgz" output || ! tar -tzf "$backup/outpu
 fi
 install -m 600 "$stage/compose.yaml" compose.yaml
 install -m 600 "$stage/image.env" image.env
-if docker compose --env-file image.env up -d --wait --wait-timeout 100; then
+if docker compose --env-file image.env up -d --wait --wait-timeout 100 &&
+   image=$(verify_image); then
     rm -f failed-release "$cached"
     find backups -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf -- {} +
     mapfile -t retained < <(find backups -mindepth 1 -maxdepth 1 -type d -name '20*' | sort -r)
@@ -72,7 +109,7 @@ if docker compose --env-file image.env up -d --wait --wait-timeout 100; then
             docker image rm "$old" >/dev/null || true
         fi
     done < <(docker image ls trendradar-pve --format '{{.Repository}}:{{.Tag}}')
-    echo "TrendRadar deployed $commit and passed the container health check"
+    receipt "$image"
 else
     docker compose --env-file image.env stop
     mv output "$backup/output-after-failure"

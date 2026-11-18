@@ -32,6 +32,7 @@ start_container() {
     rules=(nsenter -t "$pid" -n iptables)
     "${rules[@]}" -N TREND_OUT
     "${rules[@]}" -A TREND_OUT -d 192.168.0.2/32 -p tcp --dport 7890 -j RETURN
+    "${rules[@]}" -A TREND_OUT -d 192.168.0.103/32 -p tcp --dport 22 -j RETURN
     for range in 10.0.0.0/8 100.64.0.0/10 169.254.0.0/16 172.16.0.0/12 192.168.0.0/16; do
         "${rules[@]}" -A TREND_OUT -d "$range" -j REJECT
     done
