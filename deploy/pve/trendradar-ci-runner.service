@@ -7,10 +7,10 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStart=/opt/trendradar-ci/ci-runner.sh run
-ExecStop=-/usr/bin/docker rm -f trendradar-runtime-pve
+ExecStop=/opt/trendradar-ci/ci-runner.sh stop
 Restart=always
 RestartSec=7
-TimeoutStopSec=20
+TimeoutStopSec=40
 
 [Install]
 WantedBy=multi-user.target
