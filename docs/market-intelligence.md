@@ -85,6 +85,12 @@ PVE 默认通过 `MARKET_FOCUSED_CRAWL` 仅拉取财经和政策配置里的热�
 
 交易日历来自上交所年度休市公告，维护于 `config/cn_trading_calendar.yaml`。补班周末仍休市。会在缺少已验证日历的年份跳过交易简报并写日志。跨年前根据交易所公告更新日历并随镜像部署。
 
+## AI 候选筛选
+
+启用 `market_intelligence.event_analysis.admission` 后，采集时先给新闻标注分析资格。官方来源保留资格，媒体标题或摘要前 400 字需命中至少一个中英文监控主题，辅助来源 Hacker News 仅存档。过滤结果不会消耗 AI 额度。候选规则由 `always_analyze_categories`、`media_terms` 和 `record_only_sources` 控制。关键词筛选可能漏掉措辞未命中的媒体首报，可补充监控词，或将 `admission.enabled` 设为 `false` 放行。
+
+筛选启用、关闭或词表更新后，下一轮 AI 任务会重新检查有效期内未分析的记录。原始记录和已生成的事件保留，超过分析有效期的待处理条目退出队列。后台分别显示仅存档、已过期和待分析的数量。
+
 ## 管理入口
 
 PVE 配置将管理服务单独发布到 VM109 的 HTTPS 443 端口。管理页为 `https://tr.yumy.space/admin/`，以 `admin` 登录。新闻报告仍在 HTTP 80 和 8080。管理服务支持媒体标题过滤词、AI 分析预算、评分阈值和简报条数，保存后从下一轮任务读取。交易时段和来源清单由仓库配置管理。

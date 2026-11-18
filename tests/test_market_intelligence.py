@@ -331,3 +331,66 @@ def test_weekly_calendar_normalizes_publisher_timezone_and_deduplicates(tmp_path
     assert engine.db.execute("SELECT event_id,state FROM deliveries").fetchone()[:] == (
         "calendar:2026-11-23", "delivered")
     engine.close()
+
+
+def test_analysis_admission_filters_at_ingest_and_rechecks_existing_pending(tmp_path):
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    from market_intelligence.engine import MarketIntelligence
+
+    now = datetime(2026, 11, 18, 9, 0, tzinfo=timezone.utc)
+    path = tmp_path / "admission.db"
+    admission = {
+        "enabled": False, "always_analyze_categories": ["domestic_official"],
+        "record_only_sources": ["hacker-news"], "media_terms": ["chip exports", "加息", "war"],
+    }
+    settings = {"database_path": str(path), "event_analysis": {"enabled": True, "admission": admission},
+                "max_articles_per_run": 0}
+
+    def item(slug, title, summary=""):
+        return SimpleNamespace(title=title, summary=summary, published_at="", url=f"https://example.org/{slug}")
+
+    def captured(**groups):
+        return SimpleNamespace(items=groups)
+
+    initial = MarketIntelligence(settings, {}, client=object(), now=lambda: now - timedelta(days=3))
+    initial.ingest(captured(bbc=[item("old", "News about chip exports")]))
+    initial.close()
+    initial = MarketIntelligence(settings, {}, now=lambda: now)
+    initial.ingest(captured(bbc=[item("football", "Football highlights")]))
+    initial.close()
+    admission["enabled"] = True
+    engine = MarketIntelligence(settings, {}, client=object(), now=lambda: now)
+    engine.record_health(
+        {"pbc": {"name": "PBC", "url": "https://example.org/pbc", "success": True, "duration_ms": 5,
+                 "latest_published_at": "", "error": None}},
+        {"pbc": "domestic_official"},
+    )
+    engine.ingest(captured(**{
+        "bbc": [item("award", "School awards"), item("controls", "New regulations", "Limits on chip exports")],
+        "cls": [item("zh", "美联储宣布加息")],
+        "hacker-news": [item("tool", "Build a tool about chip exports"), item("duplicate", "Chip exports")],
+        "pbc": [item("official", "新规发布")],
+    }))
+    engine.ingest(captured(bbc=[item("duplicate", "Rules on chip exports")]))
+    engine.analyze_pending()
+    actual = {url.rsplit("/", 1)[-1]: (state, source) for url, state, source in
+              engine.db.execute("SELECT url,analysis_state,feed_id FROM articles")}
+    assert actual == {
+        "old": ("expired", "bbc"), "football": ("filtered", "bbc"), "award": ("filtered", "bbc"),
+        "controls": ("pending", "bbc"), "zh": ("pending", "cls"), "tool": ("filtered", "hacker-news"),
+        "duplicate": ("pending", "bbc"), "official": ("pending", "pbc"),
+    }
+    assert engine.db.execute("SELECT count(*) FROM analysis_attempts").fetchone()[0] == 0
+    engine.close()
+
+    admission["enabled"] = False
+    engine = MarketIntelligence(settings, {}, client=object(), now=lambda: now)
+    try:
+        engine.analyze_pending()
+        assert dict(engine.db.execute("SELECT analysis_state,count(*) FROM articles GROUP BY 1")) == {
+            "expired": 1, "pending": 7,
+        }
+    finally:
+        engine.close()
