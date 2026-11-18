@@ -100,3 +100,7 @@ docker run --rm -it --user 10001:10001 \
   -v "$PWD/admin-private:/app/admin-private" \
   --entrypoint python "$image" -m market_intelligence.admin set-password
 ```
+
+## 上市公司业务关联
+
+`config/market_companies.yaml` 维护已核验的上市公司主营业务、具体产业环节和第一方证据。新事件经结构化校验后，由程序将具体板块与证据表精确关联。只有证据表中明确支持的发行人才会随事件输出。当前目录覆盖半导体设备、晶圆代工、动力和储能电池行业的四家公司。公开业务关联反映产业位置，实际事件敞口和股价反应仍需另行验证。

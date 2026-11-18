@@ -1,0 +1,22 @@
+# Verified issuer capabilities. Add company relationships only with first-party evidence.
+companies:
+  - code: 002371.SZ
+    name: 北方华创
+    sectors: [半导体设备, 刻蚀设备, 薄膜沉积设备]
+    business: 提供刻蚀、薄膜沉积、炉管和清洗设备。
+    source: https://www.naura.com/product/semiconductor.html
+  - code: 688012.SH
+    name: 中微公司
+    sectors: [半导体设备, 刻蚀设备, 薄膜沉积设备]
+    business: 提供半导体制造使用的等离子体刻蚀与薄膜设备。
+    source: https://www.amec-inc.com/uploads/files/20250902/17568042727426.pdf
+  - code: 688981.SH
+    name: 中芯国际
+    sectors: [晶圆代工, 集成电路代工]
+    business: 提供晶圆代工及相关技术服务。
+    source: https://www.smics.com/uploads/7-26-3%26e4%26b8%26ad%26e8%268a%26af%26e5%269b%26bd%26e9%2699%2685%26e7%26a4%26be%26e4%26bc%269a%26e8%26b4%26a3%26e4%26bb%26bb%26e6%268a%26a5%26e5%2691%268a.pdf
+  - code: 300750.SZ
+    name: 宁德时代
+    sectors: [动力电池, 储能电池, 锂离子电池]
+    business: 研发和生产动力电池及储能电池。
+    source: https://www.catl.com/uploads/1/file/public/202010/20201015093533_puhbensuaf.pdf

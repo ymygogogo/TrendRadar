@@ -100,6 +100,15 @@ class MarketIntelligence:
         self.upstream_config = upstream_config
         self.client = client
         self.sender = sender
+        self.companies = []
+        mapping = settings.get("market_mapping", {})
+        if mapping.get("company_analysis"):
+            from .company_mapping import load_companies
+
+            try:
+                self.companies = load_companies(mapping.get("company_path", "config/market_companies.yaml"))
+            except (OSError, KeyError, TypeError, ValueError):
+                LOG.warning("market company evidence is unavailable; reports will omit companies")
         self.now = now or (lambda: datetime.now(ZoneInfo(settings.get("timezone", "Asia/Shanghai"))))
         path = Path(settings.get("database_path", "output/market_intelligence.db"))
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -300,6 +309,10 @@ class MarketIntelligence:
                 result = self._analyze(article, candidates)
                 if result is None:
                     break
+                if self.companies:
+                    from .company_mapping import match_companies
+
+                    result["related_companies"] = match_companies(self.companies, result["sectors"])
                 event_id = result["candidate_event_id"] or uuid.uuid4().hex
                 dims = result["score_dimensions"]
                 thresholds = self.settings.get("event_analysis", {})
@@ -354,6 +367,11 @@ class MarketIntelligence:
         data = json.loads(event["analysis_json"])
         sources = [r[0] for r in self.db.execute("SELECT DISTINCT url FROM articles WHERE event_id=?", (event["id"],))]
         sectors = "；".join(f"{s['sector']}：{s['direction']}（{s['reason']}）" for s in data["sectors"])
+        companies = "".join(
+            f"\n- {c['name']}（{c['code']}）：{c['business']} [业务来源]({c['source']})"
+            for c in data.get("related_companies") or []
+        )
+        company_section = f"公开业务关联（待验证事件影响）：{companies}\n" if companies else ""
         return (f"A 股重大事件预警｜{event['priority']} {event['score']}分\n"
                 f"事件：{event['title_zh']}\n{event['summary_zh']}\n"
                 f"首次报道：{event['first_reported_at'] or '未知'}；最新报道：{event['latest_reported_at'] or '未知'}\n"
@@ -361,6 +379,7 @@ class MarketIntelligence:
                 f"影响机制（推断）：{data['impact_mechanism']}\n"
                 f"原文：{' '.join(sources[:4])}\n"
                 f"方向：{data['direction']}\n行业：{sectors or '影响不明确'}\n"
+                f"{company_section}"
                 f"不确定性：{'；'.join(data['uncertainties']) or '待进一步核实'}\n"
                 f"后续观察：{'；'.join(data['follow_up_signals']) or '待观察'}")
 
@@ -474,8 +493,11 @@ class MarketIntelligence:
             lines = [heading + " " + slot.strftime("%m-%d %H:%M")]
             for event in rows:
                 source = self.db.execute("SELECT url FROM articles WHERE event_id=? LIMIT 1", (event["id"],)).fetchone()
+                companies = (json.loads(event["analysis_json"]).get("related_companies") or [])[:2]
+                names = "、".join(f"[{item['name']} {item['code']}]({item['source']})" for item in companies)
                 lines.append(f"- {event['title_zh'][:70]}（{event['score']}分，{event['verification_status']}）" +
-                             (f" [来源]({source[0]})" if source else ""))
+                             (f" [来源]({source[0]})" if source else "") +
+                             (f" · 业务关联：{names}" if names else ""))
             for channel in channels:
                 if self._deliver(key, 1, channel, "\n".join(lines), heading):
                     print(f"[A 股简报] {slot.isoformat()} 已通过 {channel} 发送 {len(rows)} 条")
