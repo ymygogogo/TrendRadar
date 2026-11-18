@@ -13,10 +13,21 @@ if [[ -f image.env ]] && grep -Fxq "TREND_IMAGE=trendradar-pve:$commit" image.en
 if [[ -f failed-release ]] && grep -Fxq "$tag" failed-release; then exit 0; fi
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
-for asset in compose.yaml SHA256SUMS IMAGE_ID trendradar-image.tar.gz; do
+for asset in compose.yaml SHA256SUMS IMAGE_ID; do
     curl --retry 2 --max-time 900 -fsSL "https://github.com/$repo/releases/download/$tag/$asset" -o "$stage/$asset"
 done
 [[ $(awk '{print $2}' "$stage/SHA256SUMS") == trendradar-image.tar.gz ]]
+archive=$stage/trendradar-image.tar.gz
+cached=$PWD/release-cache/$tag.tar.gz
+if [[ -f "$cached" ]]; then
+    ln -s "$cached" "$archive"
+    if ! (cd "$stage" && sha256sum --strict -c SHA256SUMS); then
+        rm -f "$archive"
+    fi
+fi
+if [[ ! -e "$archive" ]]; then
+    curl --retry 2 --max-time 900 -fsSL "https://github.com/$repo/releases/download/$tag/trendradar-image.tar.gz" -o "$archive"
+fi
 (cd "$stage" && sha256sum --strict -c SHA256SUMS)
 docker load -i "$stage/trendradar-image.tar.gz"
 ref=trendradar-pve:$commit
@@ -38,7 +49,7 @@ fi
 install -m 600 "$stage/compose.yaml" compose.yaml
 install -m 600 "$stage/image.env" image.env
 if docker compose --env-file image.env up -d --wait --wait-timeout 100; then
-    rm -f failed-release
+    rm -f failed-release "$cached"
     find backups -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf -- {} +
     mapfile -t retained < <(find backups -mindepth 1 -maxdepth 1 -type d -name '20*' | sort -r)
     for old in "${retained[@]:5}"; do rm -rf -- "$old"; done
