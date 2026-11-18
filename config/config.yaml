@@ -250,7 +250,8 @@ market_intelligence:
     weights: {scope: 0.30, strength: 0.35, credibility: 0.20, urgency: 0.15}
   market_mapping:
     sector_analysis: true
-    company_analysis: false
+    company_analysis: true
+    company_path: "config/market_companies.yaml"
   verification:
     reject_unverified_urgent_alerts: true
   notification:

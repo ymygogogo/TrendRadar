@@ -287,3 +287,25 @@ def test_trading_digest_respects_exchange_closures_and_sends_once(tmp_path):
     engine.dispatch_digest(trading_slot="11:35")
     assert len(delivered) == 1
     engine.close()
+
+
+def test_company_associations_are_derived_from_evidence_not_model(tmp_path):
+    class IndustryClient(FakeClient):
+        def chat(self, messages, **kwargs):
+            result = json.loads(super().chat(messages, **kwargs))
+            result["sectors"][0]["sector"] = "刻蚀设备"
+            return json.dumps(result, ensure_ascii=False)
+
+    cfg = settings(tmp_path)
+    cfg["market_mapping"] = {"company_analysis": True}
+    evening = NOW.replace(hour=21, minute=30)
+    messages = []
+    engine = MarketIntelligence(cfg, {}, IndustryClient(), lambda _, body: messages.append(body) or True,
+                                lambda: evening)
+    engine.run(data(article("Chip export controls", "https://bbc.example/controls", "bbc-world")),
+               diagnostics("bbc-world"))
+    result = json.loads(engine.db.execute("SELECT analysis_json FROM events").fetchone()[0])
+    assert {item["code"] for item in result["related_companies"]} == {"002371.SZ", "688012.SH"}
+    assert "https://www.naura.com/" in messages[0]
+    assert "中芯国际" not in messages[0]
+    engine.close()
