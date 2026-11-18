@@ -1,6 +1,11 @@
 name: Deploy PVE runtime configuration
 on:
   workflow_dispatch:
+    inputs:
+      pve_runner_label:
+        description: Unique label of the one-job PVE runner (blank uses GitHub hosting)
+        type: string
+        required: false
 permissions:
   contents: read
 concurrency:
@@ -8,8 +13,10 @@ concurrency:
   cancel-in-progress: false
 jobs:
   publish:
-    if: github.repository == 'ymygogogo/TrendRadar' && github.ref == 'refs/heads/master'
-    runs-on: ubuntu-latest
+    if: >-
+      github.repository == 'ymygogogo/TrendRadar' && github.ref == 'refs/heads/master' &&
+      (inputs.pve_runner_label == '' || startsWith(inputs.pve_runner_label, 'trendradar-runtime-'))
+    runs-on: ${{ inputs.pve_runner_label || 'ubuntu-latest' }}
     timeout-minutes: 8
     permissions:
       contents: write
