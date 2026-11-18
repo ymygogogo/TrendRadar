@@ -53,4 +53,6 @@ sudo journalctl -u trendradar-update.service
 
 VM 每五分钟检查一次。更新器先验证 AlayaNew Key 能读取模型列表且当前模型可用，再备份现有配置、替换环境文件并重建容器。失败时恢复原配置。可用 `journalctl -u trendradar-runtime.service` 检查结果。部署只在本机检查企微配置和容器健康，通过生产定时任务观察实际投递。
 
-手动发布也可传入独立的一次性 PVE runner 标签 `trendradar-runtime-<唯一后缀>`。标签留空时使用 GitHub 托管 runner。只给本次发布分配该标签，发布完成后移除 runner 和执行环境。
+手动发布默认使用 VM 108 的 `trendradar-runtime-pve` 仓库级 runner。也可显式传入一次性 runner 标签。长期服务只保留独立的 runner 注册状态，每个作业使用新的非特权容器。工作区不落到持久状态。GitHub 仓库设置为所有外部贡献者的 PR 工作流都需批准。
+
+在 CI 虚拟机上用 `systemctl status trendradar-ci-runner.service` 查看 runner。首次安装时，将 `ci-runner.sh` 安装到 `/opt/trendradar-ci/`，安装同目录的 systemd 单元，预拉取脚本中指定版本的官方 runner 镜像。通过标准输入传入本仓库的短期注册令牌执行脚本的 `register` 子命令，再启用服务。升级 runner 版本时更新脚本中的镜像并拉取，然后重启 TrendRadar runner 单元。部署 VM 的配置应用状态见 `trendradar-runtime.service`。
