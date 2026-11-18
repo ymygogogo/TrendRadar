@@ -84,3 +84,18 @@ PVE 默认通过 `MARKET_FOCUSED_CRAWL` 仅拉取财经和政策配置里的热�
 交易时段由 `market_intelligence.digest.trading_times` 配置，默认北京时间 08:30、11:35 和 15:30。容器使用现有 Supercronic 调度，在配置的分钟尝试，并在同一时段内重试。时段开始前已入库的有效分析结果可进入简报。08:30 使用最近 12 小时的事件，午间和收盘按前一交易简报时段后的进展选取，晚间 21:30 简报保持原有行为。
 
 交易日历来自上交所年度休市公告，维护于 `config/cn_trading_calendar.yaml`。补班周末仍休市。会在缺少已验证日历的年份跳过交易简报并写日志。跨年前根据交易所公告更新日历并随镜像部署。
+
+## 管理入口
+
+PVE 配置将管理服务单独发布到 VM109 的 HTTPS 443 端口。管理页为 `https://tr.yumy.space/admin/`，以 `admin` 登录。新闻报告仍在 HTTP 80 和 8080。管理服务支持媒体标题过滤词、AI 分析预算、评分阈值和简报条数，保存后从下一轮任务读取。交易时段和来源清单仍由仓库配置管理。
+
+镜像部署前，在 VM109 准备 `/opt/trendradar/admin-state` 与 `/opt/trendradar/admin-private`，仅允许运行管理服务的 UID 10001 访问。私有目录存放 HTTPS 证书、VM 私钥及管理密码哈希。采集容器只读挂载设置目录，静态报告目录不包含这些文件。管理登录失败、表单校验失败或跨站提交不会修改设置。
+
+如需换密码，在 VM109 通过以下命令交互操作。密码文件为持久化状态，重启后仍有效。
+
+```text
+cd /opt/trendradar
+docker compose --env-file image.env run --rm --no-deps \
+  -v /opt/trendradar/admin-private:/app/admin-private \
+  --entrypoint python trendradar-admin -m market_intelligence.admin set-password
+```
