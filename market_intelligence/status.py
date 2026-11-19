@@ -4,7 +4,19 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import tempfile
+
+
+def source_error(raw):
+    raw = raw or ""
+    if match := re.search(r"(?<![0-9])([45][0-9]{2}) (?:Client|Server) Error", raw):
+        return "HTTP " + match[1]
+    if "超时" in raw:
+        return "请求超时"
+    if "解析失败" in raw:
+        return "订阅解析失败"
+    return "请求失败" if raw else ""
 
 
 def snapshot(db, now, channels=None, model=None):
@@ -37,6 +49,8 @@ def snapshot(db, now, channels=None, model=None):
     status["source_details"] = [list(row) for row in db.execute(
         """SELECT feed_id,name,category,last_attempt,last_success,latest_published_at
         FROM feed_health ORDER BY feed_id""")]
+    status["source_errors"] = {feed: source_error(error) for feed, error in db.execute(
+        "SELECT feed_id,error FROM feed_health WHERE consecutive_failures>0 AND error IS NOT NULL")}
     status["recent_events"] = [list(row) for row in db.execute(
         """SELECT title_zh,substr(summary_zh,1,240),priority,score,verification_status,latest_reported_at
         FROM events WHERE priority IN ('P0','P1')

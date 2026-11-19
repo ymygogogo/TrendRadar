@@ -1,6 +1,6 @@
 """Event and notification invariants with synthetic articles; no live delivery."""
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
@@ -432,5 +432,80 @@ def test_model_usage_records_reported_tokens_even_when_analysis_json_is_invalid(
         publish_current(engine)
         assert "test-only-secret" not in dest.read_text()
         assert json.loads(dest.read_text())["model"]["endpoint_host"] == "api.example.net"
+    finally:
+        engine.close()
+
+
+def test_live_notification_schedule_loads_saved_slots_and_only_delivers_once(tmp_path, monkeypatch):
+    from market_intelligence.notification_settings import visible, write
+    from market_intelligence.trading_calendar import cron_entries, due_jobs
+    from trendradar.core import load_config
+
+    location = tmp_path / "settings.json"
+    monkeypatch.setenv("MARKET_OPERATOR_SETTINGS", str(location))
+    monkeypatch.setenv("RUN_MODE", "cron")
+    monkeypatch.setenv("MARKET_ENABLED", "true")
+    monkeypatch.setenv("MARKET_NOTIFICATION_ENABLED", "true")
+    base = load_config()["MARKET_INTELLIGENCE"]
+    custom = {**visible(base), "daily_times": ["18:41"], "trading_times": ["11:36"],
+              "weekly_time": "20:31", "opening_time": "09:42", "urgent_enabled": False}
+    write(location, custom)
+    loaded = load_config()
+    cfg = loaded["MARKET_INTELLIGENCE"]
+    cfg["database_path"] = str(tmp_path / "market.db")
+    assert loaded["MARKET_LIVE_SCHEDULE"]
+    assert cron_entries(cfg, live_schedule=True)[0] == "* * * * * cd /app && python -m market_intelligence schedule-tick"
+    assert list(due_jobs(cfg, NOW.replace(hour=18, minute=40))) == []
+    assert list(due_jobs(cfg, NOW.replace(hour=18, minute=41))) == [("daily", "18:41")]
+    assert list(due_jobs(cfg, NOW.replace(hour=18, minute=46))) == [("daily", "18:41")]
+    assert list(due_jobs(cfg, NOW.replace(hour=11, minute=36))) == [("trading", "11:36")]
+    assert list(due_jobs(cfg, (NOW + timedelta(days=3)).replace(hour=11, minute=36))) == []
+    assert list(due_jobs(cfg, (NOW + timedelta(days=4)).replace(hour=20, minute=31))) == [("weekly", None)]
+    assert list(due_jobs(cfg, NOW.replace(hour=9, minute=42))) == [("opening", None)]
+    write(location, {**custom, "weekly_time": "", "opening_time": ""})
+    disabled = load_config()["MARKET_INTELLIGENCE"]
+    assert list(due_jobs(disabled, (NOW + timedelta(days=4)).replace(hour=20, minute=31))) == []
+    assert list(due_jobs(disabled, NOW.replace(hour=9, minute=42))) == []
+    assert disabled["market_open"]["enabled"] is True
+    now = [NOW.replace(hour=18, minute=41)]
+    sent = []
+    engine = MarketIntelligence(cfg, loaded, client=FakeClient(), sender=lambda channel, body: sent.append(body) or True,
+                                now=lambda: now[0])
+    try:
+        item = article("Chip export restrictions", "https://official.example/chip", "federal-reserve")
+        engine.record_health(diagnostics("federal-reserve"), {"federal-reserve": "international_official"})
+        engine.ingest(data(item))
+        engine.analyze_pending()
+        engine.dispatch_urgent()
+        assert not sent
+        engine.dispatch_digest(daily_slot="18:41")
+        now[0] += timedelta(minutes=5)
+        engine.dispatch_digest(daily_slot="18:41")
+        assert len(sent) == 1 and "热点新闻简报" in sent[0]
+    finally:
+        engine.close()
+
+
+def test_urgent_budget_excludes_scheduled_digests_and_checks_current_threshold(tmp_path):
+    cfg = settings(tmp_path)
+    cfg["notification"]["max_per_hour"] = 1
+    sends = []
+    engine = MarketIntelligence(cfg, {}, FakeClient(), lambda _, body: sends.append(body) or True, lambda: NOW)
+    try:
+        item = article("Chip export restrictions", "https://official.example/chip", "federal-reserve")
+        engine.record_health(diagnostics("federal-reserve"), {"federal-reserve": "international_official"})
+        engine.ingest(data(item))
+        engine.analyze_pending()
+        with engine.db:
+            engine.db.execute("INSERT INTO deliveries VALUES ('digest:previous',1,'feishu','delivered',1,?,NULL)",
+                              (NOW.isoformat(),))
+        score = engine.db.execute("SELECT score FROM events").fetchone()[0]
+        cfg["event_analysis"]["urgent_priority_score"] = score + 1
+        engine.dispatch_urgent()
+        assert not sends
+        cfg["event_analysis"]["urgent_priority_score"] = score
+        engine.dispatch_urgent()
+        engine.dispatch_urgent()
+        assert len(sends) == 1
     finally:
         engine.close()

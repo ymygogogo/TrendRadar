@@ -1658,7 +1658,8 @@ class NewsAnalyzer:
                     print(f"[市场情报] 公网新闻发布失败: {type(error).__name__}")
             extension.analyze_pending()
             extension.dispatch_urgent()
-            extension.dispatch_digest()
+            if not self.ctx.config.get("MARKET_LIVE_SCHEDULE"):
+                extension.dispatch_digest()
             extension.maintain()
             publish_current(extension)
         finally:

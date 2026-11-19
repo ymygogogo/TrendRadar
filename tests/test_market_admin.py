@@ -166,6 +166,21 @@ def test_network_access_uses_peer_and_origin_for_password_free_admin(tmp_path):
         base = {"MODEL": "openai/original", "API_KEY": "private-secret", "API_BASE": "https://api.example.net/v1"}
         assert resolve(base, state) == {**base, "MODEL": "openai/replacement", "MAX_TOKENS": 6000, "TIMEOUT": 90}
         assert "private-secret" not in state.with_name("model.json").read_text()
+        assert "推送设置" in body and 'name="urgent_enabled" value="1" checked' in body
+        policy = {"token": server.token, "daily_times": "18:41, 21:30", "trading_times": "08:30，15:30",
+                  "weekly_time": "20:30", "opening_time": "09:40", "max_per_hour": 4,
+                  "cooldown_minutes": 30, "urgent_max_age_hours": 12}
+        route = "/admin/notifications"
+        assert request("POST", route, headers={"Origin": public.rstrip("/")}, data=urlencode(policy))[0] == 403
+        assert request("POST", route, headers=headers, data=urlencode({**policy, "token": "invalid"}))[0] == 403
+        code, _, response = request("POST", route, headers=headers, data=urlencode({**policy, "daily_times": "08:30"}))
+        assert code == 400 and "时间不能重叠" in response
+        assert not state.with_name("notifications.json").exists()
+        code, _, response = request("POST", route, headers=headers, data=urlencode(policy))
+        assert code == 200 and 'value="18:41, 21:30"' in response
+        parsed = json.loads(state.with_name("notifications.json").read_text())
+        assert parsed["trading_times"] == ["08:30", "15:30"] and parsed["urgent_enabled"] is False
+        assert state.exists() and state.with_name("model.json").exists()
     finally:
         server.shutdown()
         server.server_close()

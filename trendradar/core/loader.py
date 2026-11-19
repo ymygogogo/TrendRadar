@@ -600,13 +600,16 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
         config["RSS"]["FEEDS"] = [feed for feed in config["RSS"]["FEEDS"] if feed.get("category") in wanted_categories]
     operator_path = _get_env_str("MARKET_OPERATOR_SETTINGS")
     if operator_path and market.get("enabled"):
-        from market_intelligence import operator_settings
+        from market_intelligence import notification_settings, operator_settings
 
         try:
             operator_settings.apply(market, operator_settings.read(operator_path, market))
         except (ValueError, OSError) as error:
             print(f"[市场情报] 管理设置无法读取，使用部署配置: {type(error).__name__}")
+        config["MARKET_NOTIFICATION_DEFAULTS"] = notification_settings.visible(market)
+        notification_settings.apply(market, operator_path)
     config["MARKET_INTELLIGENCE"] = market
+    config["MARKET_LIVE_SCHEDULE"] = bool(operator_path and os.environ.get("RUN_MODE") == "cron")
 
     # AI 模型共享配置
     config["AI"] = _load_ai_config(config_data)

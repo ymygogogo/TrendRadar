@@ -7,7 +7,8 @@ if [ ! -f "/app/config/config.yaml" ] || [ ! -f "/app/config/frequency_words.txt
     exit 1
 fi
 
-case "${RUN_MODE:-cron}" in
+export RUN_MODE="${RUN_MODE:-cron}"
+case "$RUN_MODE" in
 "once")
     echo "🔄 单次执行"
     exec python -m trendradar
