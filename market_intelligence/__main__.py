@@ -75,7 +75,11 @@ def trading_command(command, slot):
 
         engine = MarketIntelligence(settings, config)
         try:
-            if command == "weekly-calendar":
+            if command == "publish-public-history":
+                from .public_site import backfill_delivered
+
+                print(f"Published {backfill_delivered(engine)} existing delivered digests")
+            elif command == "weekly-calendar":
                 engine.dispatch_weekly_calendar()
             elif command == "market-close":
                 engine.collect_market_close()
@@ -93,7 +97,7 @@ def brief_now(send, publish_preview):
     from datetime import timedelta
     from uuid import uuid4
 
-    from . import digests
+    from . import digests, public_site
     from .engine import MarketIntelligence
 
     with redirect_stdout(sys.stderr):
@@ -121,7 +125,9 @@ def brief_now(send, publish_preview):
         elif publish_preview:
             edition = digests.freeze_edition(engine.db, key, edition)
             digests.archive_edition(os.environ["MARKET_STATUS_PATH"], edition)
-        print(digests.digest_message(edition, origin if send or publish_preview else ""))
+        public = public_site.public_origin() if send else ""
+        print(digests.digest_message(edition, public or (origin if send or publish_preview else ""),
+                                     public=bool(public), max_bytes=3800))
         return 0
     finally:
         engine.close()
@@ -129,7 +135,7 @@ def brief_now(send, publish_preview):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["check-sources", "health", "digest-cron", "trading-digest", "weekly-calendar", "market-close", "brief-now"])
+    parser.add_argument("command", choices=["check-sources", "health", "digest-cron", "trading-digest", "weekly-calendar", "market-close", "brief-now", "publish-public-history"])
     parser.add_argument("--database", default="output/market_intelligence.db")
     parser.add_argument("--slot", help="Configured trading digest time in HH:MM")
     delivery = parser.add_mutually_exclusive_group()
@@ -142,7 +148,7 @@ def main():
         parser.error("--send and --publish-preview require brief-now")
     if args.command == "trading-digest" and args.slot is None:
         parser.error("trading-digest requires --slot")
-    if args.command in {"digest-cron", "trading-digest", "weekly-calendar", "market-close"}:
+    if args.command in {"digest-cron", "trading-digest", "weekly-calendar", "market-close", "publish-public-history"}:
         return trading_command(args.command, args.slot)
     return check_sources() if args.command == "check-sources" else health(args.database)
 

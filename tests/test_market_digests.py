@@ -103,6 +103,14 @@ def test_digest_message_fits_all_long_titles_and_shows_shortfall():
     assert len(message.encode("utf-8")) <= digests.MESSAGE_BYTES
     assert len(re.findall(r"^\d+\. P1｜", message, re.M)) == 20
     assert message.endswith("/admin/digests/" + edition["id"] + ")")
+    assert message.count("A股：影响暂不明确") == 20
+    assert all(f"#event-{number})" in message for number in range(1, 21))
+    for event in edition["events"]:
+        event.update(topic="economy", heat=99, tier="extended", reported_at=NOW.isoformat(),
+                     direction="potentially_mixed", impact="可能通过供应链成本传导到制造业" * 60)
+    public = digests.digest_message(edition, "https://news.yumy.space", public=True)
+    assert len(public.encode()) <= digests.MESSAGE_BYTES and public.count("A股：影响分化") == 20
+    assert "/digests/" + edition["id"] + ".html#event-20)" in public
     edition["events"] = edition["events"][:2]
     assert "距目标还差 6 条" in digests.digest_message(edition, "https://tr.yumy.space")
 

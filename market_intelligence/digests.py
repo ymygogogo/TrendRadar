@@ -15,7 +15,7 @@ from .news_topics import NewsTopics, TOPIC_LABELS
 
 MIN_EVENTS = 8
 MAX_EVENTS = 20
-MESSAGE_BYTES = 1600
+MESSAGE_BYTES = 3800
 DIRECTIONS_ZH = {
     "potential_positive": "潜在利好",
     "potential_negative": "潜在承压",
@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS digest_entries (
     PRIMARY KEY(delivery_key, event_id)
 );
 CREATE INDEX IF NOT EXISTS idx_digest_entries_event ON digest_entries(event_id, revision);
+CREATE TABLE IF NOT EXISTS published_digest_editions (delivery_key TEXT PRIMARY KEY);
 """
 
 
@@ -91,6 +92,8 @@ def forget_old_editions(db, cutoff, status_path):
         for (key,) in old:
             (folder / f"{public_id(key)}.json").unlink(missing_ok=True)
     db.execute("DELETE FROM digest_entries WHERE delivery_key IN (SELECT delivery_key FROM digest_editions WHERE created_at<?)", (cutoff,))
+    db.execute("DELETE FROM published_digest_editions WHERE delivery_key IN "
+               "(SELECT delivery_key FROM digest_editions WHERE created_at<?)", (cutoff,))
     db.execute("DELETE FROM digest_editions WHERE created_at<?", (cutoff,))
 
 
@@ -273,23 +276,27 @@ def stored_edition(db, key):
 
 
 def _short_title(value, budget):
-    text = " ".join(re.sub(r"[\[\]<>`*_]", "", value).split())
+    text = " ".join(re.sub(r"[\[\]<>`*_\\]", "", value).split()) or "新闻详情"
     raw = (text or "新闻详情见链接").encode("utf-8")
     if len(raw) <= budget:
         return text
     return raw[:budget - 3].decode("utf-8", errors="ignore").rstrip() + "…"
 
 
-def digest_message(edition, detail_origin=""):
+def digest_url(origin, edition_id, *, public=False):
+    path = f"/digests/{edition_id}.html" if public else f"/admin/digests/{edition_id}"
+    return origin.rstrip("/") + path
+
+
+def digest_message(edition, detail_origin="", *, public=False, max_bytes=MESSAGE_BYTES):
     events = edition["events"]
     stamp = datetime.fromisoformat(edition["created_at"])
     lines = [f"# {edition['title']} · {stamp:%m-%d %H:%M}", f"本期 {len(events)} 条"]
     if len(events) < edition["target"]:
         lines[1] += f" · 距目标还差 {edition['target'] - len(events)} 条符合条件的事件"
-    footer = ""
-    if detail_origin:
-        footer = f"\n\n[登录查看 A 股影响、概念与相关股票]({detail_origin.rstrip('/')}/admin/digests/{edition['id']})"
-    prefixes = []
+    url = digest_url(detail_origin, edition["id"], public=public) if detail_origin else ""
+    footer = f"\n\n[整期简报]({url})" if url else ""
+    entries = []
     for index, event in enumerate(events, 1):
         topic = TOPIC_LABELS.get(event.get("topic"), event["priority"])
         label = f"{topic} · 热度 {event['heat']}" if "heat" in event else topic
@@ -298,15 +305,35 @@ def digest_message(edition, detail_origin=""):
         if event["tier"] == "extended":
             date = datetime.fromisoformat(event["reported_at"]).astimezone(stamp.tzinfo)
             label += f" · 补录 {date:%m-%d}"
-        prefixes.append(f"{index}. {label}｜")
-    reserved = len(("\n".join(lines + prefixes) + footer).encode("utf-8"))
-    budget = min(150, max(9, (MESSAGE_BYTES - reserved) // max(1, len(events))))
-    for prefix, event in zip(prefixes, events):
-        line = prefix + _short_title(event["title"], budget)
-        # Non-web installations retain the existing inline source when it fits.
-        if not footer and len(events) <= 3 and event["source"]:
-            source = f" [原文]({event['source'].replace('(', '%28').replace(')', '%29')})"
-            if len(source.encode("utf-8")) <= 200:
-                line += source
-        lines.append(line)
-    return "\n".join(lines) + footer
+        link = f"{url}#event-{index}" if url else ""
+        source = event.get("source", "")
+        if not url and len(events) <= 3 and source:
+            source = f" [原文]({source.replace('(', '%28').replace(')', '%29')})"
+            if len(source.encode()) > 200:
+                source = ""
+        else:
+            source = ""
+        direction = DIRECTIONS_ZH.get(event.get("direction"), "影响不明确")
+        impact = event.get("impact", "").strip()
+        if direction == "影响不明确" or not impact:
+            impact_line, impact = "　A股：影响暂不明确", ""
+        else:
+            impact_line = f"　A股：{direction}"
+            sector = next((item["sector"] for item in event.get("sectors", []) if item.get("sector")), "")
+            impact = " · ".join(filter(None, (sector, impact)))
+        entries.append((f"{index}. {label}｜", link, source, impact_line, impact, event["title"]))
+
+    def render(title_bytes, impact_bytes):
+        out = list(lines)
+        for prefix, link, source, impact_label, impact, title in entries:
+            short = _short_title(title, title_bytes)
+            out.append(prefix + (f"[{short}]({link})" if link else short + source))
+            out.append(impact_label + (" · " + _short_title(impact, impact_bytes) if impact and impact_bytes else ""))
+        return "\n".join(out) + footer
+
+    max_bytes = min(max_bytes, MESSAGE_BYTES)
+    for title_bytes, impact_bytes in ((120, 95), (81, 60), (60, 36), (42, 27), (30, 18), (18, 12), (9, 9), (9, 0)):
+        message = render(title_bytes, impact_bytes)
+        if len(message.encode()) <= max_bytes:
+            return message
+    raise ValueError("channel budget cannot fit complete digest")

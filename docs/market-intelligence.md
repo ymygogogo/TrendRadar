@@ -134,3 +134,19 @@ docker run --rm -it --user 10001:10001 \
 管理页总览展示当前数据库中的待分析、已分析、重点事件和成功投递数，并列出过去 24 小时最近报道的至多 8 条 P0 / P1 事件。采集渠道展示 RSS 来源类别、成功次数、抓取耗时、最近成功时间和最新文章时间。推送渠道展示实际启用状态、缺少凭据的渠道、最近投递结果和成功及失败记录数。定时简报运行和采集结束后都会更新快照，页面时间统一显示为北京时间。
 
 Prometheus 可通过管理员身份抓取 `https://tr.yumy.space/admin/metrics`。指标覆盖新闻处理状态、事件等级、投递状态及各 RSS 源抓取次数、成功次数、连续失败次数和最近耗时。用 `trendradar_status_snapshot_timestamp_seconds` 判断状态快照的时效。管理服务只读挂载独立的状态快照。采集日志、源 URL 和凭据留在采集侧，事件摘要仅出现在需要登录的管理页。
+
+## 公网新闻站
+
+采集容器在 RSS 成功抓取后导出首页。公开版本包含标题、来源、发布时间和原文链接。简报详情包含事件摘要、潜在影响、相关概念和有证据的股票。管理路由、运行状态和 SQLite 都留在 PVE。公开站复用简报的固定期次 ID，地址形如 `/digests/<id>.html#event-1`。
+
+在中国香港创建独立 OSS Bucket，设置静态首页 `index.html`，绑定公网子域名并配置 HTTPS。仅该 Bucket 允许匿名读对象。发布身份只需要 `oss:PutObject`，资源范围为该 Bucket 的 `index.html` 和 `digests/*`。在采集服务私有运行环境设置 `MARKET_PUBLIC_NEWS_URL`、`MARKET_PUBLIC_NEWS_BUCKET` 和该发布身份的 OSS 凭据。两项公开站配置均为空时停用同步。仅启用其中一项视为配置错误。
+
+每期先上传详情，读取公网地址并核对内容，再更新历史列表和发送企微。公网回读失败时保留同一期次，等待调度窗口内重试。企微标题直接定位到事件，第二行说明潜在 A 股影响，消息底部提供整期链接。
+
+首次上线可同步本地数据库仍保留的已送达简报，无需重新发消息。
+
+```text
+docker compose --env-file image.env exec -T trendradar python -m market_intelligence publish-public-history
+```
+
+维护时用不带 VPN 的外部网络确认首页、历史和企微事件链接。暂停发布可清空两项公开站配置并重建采集容器。已发布对象由独立 Bucket 保存，便于回滚程序和迁移域名时保留已发链接。

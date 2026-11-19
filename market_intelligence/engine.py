@@ -18,7 +18,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
 from .analysis_admission import AnalysisAdmission
-from . import digests
+from . import digests, public_site
 
 LOG = logging.getLogger(__name__)
 CHANNEL_KEYS = {
@@ -449,7 +449,7 @@ class MarketIntelligence:
 
     def _dispatch(self, channel, content, title="A 股重大事件预警", *, require_complete=False):
         if self.sender is not None:
-            return bool(self.sender(channel, content))
+            return bool(self.sender(channel, content(3800) if callable(content) else content))
         from trendradar.notification.dispatcher import NotificationDispatcher
         config = dict(self.upstream_config)
         if channel == "wework":
@@ -466,6 +466,8 @@ class MarketIntelligence:
         from trendradar.notification.batch import truncate_at_line_boundary
         def single_message(*args, **kwargs):
             max_bytes = kwargs.get("max_bytes", 1800)
+            if callable(content):
+                return [content(max_bytes)]
             if require_complete and len(content.encode("utf-8")) > max_bytes:
                 raise ValueError("digest message exceeds the configured channel budget")
             return [truncate_at_line_boundary(content, max_bytes)]
@@ -630,7 +632,8 @@ class MarketIntelligence:
         if not any(self._digest_delivery_due(key, channel) for channel in channels):
             return False
         edition = digests.freeze_edition(self.db, key, {
-            "detail_origin": os.environ.get("MARKET_DIGEST_BASE_URL", ""), **edition,
+            "detail_origin": os.environ.get("MARKET_DIGEST_BASE_URL", ""),
+            "public_origin": public_site.public_origin(), **edition,
         })
         origin = edition["detail_origin"]
         if origin:
@@ -639,7 +642,18 @@ class MarketIntelligence:
             except (OSError, ValueError) as error:
                 LOG.warning("简报详情发布失败 %s: %s", key, type(error).__name__)
                 return False
-        body = digests.digest_message(edition, origin)
+        public = edition.get("public_origin", "")
+        if public:
+            try:
+                public_site.publish_edition(self.db, key, edition, public, self.now(),
+                                            retention_days=int(self.settings.get("retention_days", 30)))
+            except Exception as error:
+                LOG.warning("公网简报未发布，将在定时窗口内重试 %s: %s", key, type(error).__name__)
+                return False
+
+        def body(max_bytes):
+            return digests.digest_message(edition, public or origin, public=bool(public), max_bytes=max_bytes)
+
         delivered = False
         for channel in channels:
             if self._deliver(key, 1, channel, body, edition["title"], claim=True):
