@@ -19,6 +19,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
 from .analysis_admission import AnalysisAdmission
+from .chinese_reference import chinese_headline, needs_chinese_reference
 from . import digests, public_site
 
 LOG = logging.getLogger(__name__)
@@ -140,6 +141,9 @@ class MarketIntelligence:
             analysis_json TEXT NOT NULL, score INTEGER NOT NULL, priority TEXT NOT NULL,
             verification_status TEXT NOT NULL, first_reported_at TEXT,
             latest_reported_at TEXT, updated_at TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE TABLE IF NOT EXISTS article_chinese_references (
+            article_id TEXT PRIMARY KEY, headline_zh TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS analysis_attempts (
             attempted_at TEXT NOT NULL, article_id TEXT NOT NULL
@@ -313,6 +317,12 @@ class MarketIntelligence:
                 "source_urls": [article["url"]],
             },
         }
+        if needs_chinese_reference(article["title"]):
+            prompt["rules"] += (
+                " For headline_zh, translate only the original article title into Simplified Chinese. "
+                "Preserve names, numbers, attribution and uncertainty. Do not summarize the event or add any details."
+            )
+            prompt["response_example"]["headline_zh"] = "原文标题的中文翻译"
         raw = self.client.chat([
             {"role": "system", "content": "You are a cautious Chinese A-share news analyst. Output only valid JSON."},
             {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
@@ -381,6 +391,12 @@ class MarketIntelligence:
                 result = self._analyze(article, candidates)
                 if result is None:
                     break
+                headline = result.pop("headline_zh", "")
+                if needs_chinese_reference(article["title"]):
+                    translated = chinese_headline(headline)
+                    if translated:
+                        self.db.execute("INSERT INTO article_chinese_references VALUES (?,?) ON CONFLICT(article_id) "
+                                        "DO UPDATE SET headline_zh=excluded.headline_zh", (article["id"], translated))
                 if self.companies:
                     from .company_mapping import match_companies
 
@@ -778,6 +794,8 @@ class MarketIntelligence:
         self.db.execute("DELETE FROM article_hotlist WHERE seen_at<?", (cutoff,))
         self.db.execute("DELETE FROM article_youtube_views WHERE sampled_at<?", (cutoff,))
         self.db.execute("DELETE FROM articles WHERE collected_at<?", (cutoff,))
+        self.db.execute("""DELETE FROM article_chinese_references
+            WHERE NOT EXISTS (SELECT 1 FROM articles WHERE id=article_chinese_references.article_id)""")
         self.db.execute("DELETE FROM event_versions WHERE event_id IN (SELECT id FROM events WHERE updated_at<?)", (cutoff,))
         self.db.execute("DELETE FROM events WHERE updated_at<?", (cutoff,))
         self.db.execute("DELETE FROM deliveries WHERE updated_at<?", (cutoff,))

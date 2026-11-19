@@ -103,7 +103,7 @@ def test_home_exposes_regions_and_latest_brief_with_stable_event_links():
                                    brief=brief).decode()
     assert 'data-show="all" aria-pressed="true"' in page
     assert 'data-region="domestic"' in page and 'data-region="international"' in page
-    assert "搜索标题或来源" in page and "最新一期" in page and "&lt;国内三条&gt;" in page
+    assert "搜索原文、中文参考或来源" in page and "最新一期" in page and "&lt;国内三条&gt;" in page
     assert f'/digests/{brief["id"]}.html#event-4' in page and "国内 3 条 · 海外 1 条" in page
 
 
@@ -130,5 +130,43 @@ def test_today_news_uses_shanghai_publication_date_and_preserves_previous_rounds
         assert 'data-region="international"' in page and "旧芯片消息" not in page
         empty = public_site.render_home(None, None, NOW, today=[]).decode()
         assert 'data-show="today" aria-pressed="false">今日新闻 0' in empty
+    finally:
+        engine.close()
+
+
+def test_home_keeps_original_links_and_labels_chinese_references():
+    entries = [
+        {"title": "Chip exports rise 8%", "url": "https://bbc.example/chips?utm_source=rss"},
+        {"title": "Fed holds rates", "url": "https://example.net/fed"},
+        {"title": "Oil & gas", "url": "https://example.net/oil"},
+        {"title": "苹果公布 AI 计划", "url": "https://example.net/apple"},
+    ]
+    references = {
+        ("https://bbc.example/chips", "Chip exports rise 8%"): ("中文参考", "芯片出口增长 8% <估算>"),
+        ("https://example.net/fed", "Fed holds rates"): ("关联事件", "美联储维持利率"),
+        ("https://example.net/oil", "Old title"): ("中文参考", "旧标题"),
+    }
+    page = public_site.render_home(None, None, NOW, today=[{"word": "经济", "titles": entries}],
+                                   references=references).decode()
+    assert 'href="https://bbc.example/chips?utm_source=rss" rel="noreferrer">Chip exports rise 8%' in page
+    assert '>中文参考</span>芯片出口增长 8% &lt;估算&gt;' in page
+    assert '>关联事件</span>美联储维持利率' in page
+    assert 'text=Oil+%26+gas' in page and 'text=Fed+holds+rates' in page
+    assert 'text=Chip' not in page and '旧标题' not in page
+    assert page.count('<a class="translation-link"') == 2
+
+
+def test_chinese_references_reads_preupgrade_database(tmp_path):
+    engine = MarketIntelligence({"database_path": str(tmp_path / "market.db")}, {})
+    try:
+        with engine.db:
+            engine.db.execute("DROP TABLE article_chinese_references")
+            engine.db.execute("""INSERT INTO events(id,title_zh,summary_zh,analysis_json,score,priority,verification_status,updated_at)
+                VALUES ('event','美联储维持利率','','{}',70,'P1','confirmed',?)""", (NOW.isoformat(),))
+            engine.db.execute("""INSERT INTO articles(id,feed_id,title,url,collected_at,event_id)
+                VALUES ('article','fed','Fed holds rates','https://example.net/fed',?,'event')""", (NOW.isoformat(),))
+        assert public_site.chinese_references(engine.db, NOW) == {
+            ("https://example.net/fed", "Fed holds rates"): ("关联事件", "美联储维持利率"),
+        }
     finally:
         engine.close()

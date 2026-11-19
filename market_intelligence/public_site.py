@@ -17,6 +17,7 @@ import requests
 
 from trendradar.report.rss_views import rss_groups
 
+from .chinese_reference import chinese_headline, needs_chinese_reference
 from .crawl_filter import blocked_titles
 from .digests import REGION_LABELS, digest_url, region_summary, safe_url
 from .news_topics import NewsTopics, TOPIC_LABELS
@@ -108,6 +109,22 @@ small,.muted { color:var(--muted); font-size:.85rem; }
   content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
   background:linear-gradient(90deg,#091723 23%,#091723ed 34%,#09172365 61%,transparent 86%);
 }
+.radar-sweep {
+  position:absolute; z-index:-2; pointer-events:none; inset-inline-end:4%; top:50%;
+  width:clamp(20rem,58vw,44rem); aspect-ratio:1; translate:0 -50%;
+  mask-image:radial-gradient(circle,black 10%,#000c 42%,transparent 68%);
+}
+.radar-sweep::before {
+  content:""; position:absolute; inset:0;
+  background:conic-gradient(from 0deg,transparent 0 304deg,#62ecff00 315deg,#62ecff52 357deg,#a6fbff91 359deg,transparent 360deg);
+  animation:radar-scan 3s cubic-bezier(.28,.27,.52,1) both;
+}
+@keyframes radar-scan {
+  0% { transform:rotate(-95deg); opacity:0; }
+  17% { opacity:.95; }
+  76% { opacity:.85; }
+  100% { transform:rotate(225deg); opacity:0; }
+}
 .news-hero::after {
   content:""; position:absolute; inset:auto 0 0; height:1px; pointer-events:none;
   background:linear-gradient(90deg,#69dae8,#488aa52b 74%,transparent);
@@ -143,6 +160,8 @@ button[aria-pressed=true] { border-color:var(--accent); background:var(--accent-
 .export-menu .actions { position:absolute; inset-inline-end:0; z-index:2; width:max-content; max-width:85vw;
   padding:.5rem; background:var(--header); border:1px solid var(--edge); border-radius:.55rem; }
 .news-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.8rem; align-items:start; margin-top:.55rem; }
+.news-grid:not([hidden]) { animation:news-enter .27s ease-out both; }
+@keyframes news-enter { from { opacity:.6; transform:translateY(.28rem); } }
 .topic-card { padding:.85rem 1rem; min-width:0; }
 .topic-card h3 { font-size:1rem; margin:0; display:flex; align-items:baseline; justify-content:space-between; gap:.5rem; }
 .topic-card h3 small { font-variant-numeric:tabular-nums; }
@@ -151,6 +170,11 @@ button[aria-pressed=true] { border-color:var(--accent); background:var(--accent-
 .topic-card li:last-child { padding-bottom:0; }
 .topic-card li a { display:block; color:var(--ink); text-decoration:none; font-weight:620; }
 .topic-card li small { display:block; margin-top:.1rem; }
+.topic-card li .news-title:hover { text-decoration:underline; text-underline-offset:.18em; }
+.news-reference { color:#c8eaf4; font-size:.93rem; line-height:1.5; margin:.24rem 0 .32rem; }
+.news-reference .reference-label { color:var(--muted); font-size:.73rem; margin-inline-end:.4rem; white-space:nowrap; }
+.topic-card li .translation-link { display:inline-block; margin-inline-start:.55rem; color:var(--accent); font-size:.79rem; font-weight:500; }
+.topic-card li .translation-link:hover { text-decoration:underline; }
 .news-source { margin-inline-end:.15rem; color:var(--accent); font-weight:580; }
 .history li { padding:.8rem 1rem; }
 .history li:first-child { border:0; }
@@ -161,6 +185,7 @@ button[aria-pressed=true] { border-color:var(--accent); background:var(--accent-
   .news-grid,.brief-headlines { grid-template-columns:1fr; }
   .news-hero { min-height:15.35rem; }
   .brief-main { max-width:100%; width:100%; }
+  .radar-sweep { inset-inline-end:-3.75rem; }
   .radar-visual { width:100%; object-position:60% 50%; }
   .news-hero::before { background:linear-gradient(90deg,#091723f5 3%,#091723ba 52%,#09172333 100%); }
   .brief-headlines { gap:0; background:var(--surface); border:1px solid var(--edge); border-radius:var(--radius); }
@@ -178,11 +203,17 @@ button[aria-pressed=true] { border-color:var(--accent); background:var(--accent-
   .controls input { flex-basis:100%; }
   .export-menu .actions { position:static; width:auto; }
 }
+@media (prefers-reduced-motion:reduce) {
+  .radar-sweep::before,.news-grid:not([hidden]) { animation:none; }
+  .radar-sweep { display:none; }
+}
 @media print {
   :root { color-scheme:light; --ink:#111; --muted:#333; --edge:#ddd; --edge-soft:#e5e5e5; --surface:#fff; --bg:#fff; --accent:#111; }
-  header,.scope,.controls,.radar-visual,.news-hero::before,.news-hero::after { display:none; }
+  header,.scope,.controls,.radar-visual,.radar-sweep,.translation-link,.news-hero::before,.news-hero::after { display:none; }
   .news-hero { min-height:0; background:var(--bg); box-shadow:none; }
   #collected time,.digest-meta { color:var(--muted); }
+  .news-grid:not([hidden]) { animation:none; }
+  .news-reference { color:var(--ink); }
   .topic-card li { break-inside:avoid; }
 }
 """
@@ -220,7 +251,7 @@ def latest_published_edition(db):
 def _latest_brief(brief, now):
     collected = f'<p id="collected" class="muted">本轮采集 <time datetime="{now.isoformat()}">{now:%m-%d %H:%M}</time> · 北京时间</p>'
     heading = f'{collected}<h1>全球要闻</h1>'
-    image = _hero_image()
+    image = _hero_image() + '<span class="radar-sweep" aria-hidden="true"></span>'
     if not brief or not re.fullmatch(r"[a-f0-9]{24}", brief["id"]):
         return (f'<section class="news-hero" aria-label="新闻简报">{image}<div class="brief-main">{heading}'
                 '<div class="actions"><a class="button-link" href="/digests/index.html">浏览简报历史</a></div>'
@@ -271,13 +302,36 @@ def today_groups(db, settings, now):
     return [{"word": TOPIC_LABELS[topic], "titles": titles} for topic, titles in grouped.items() if titles]
 
 
-def _rss_panel(groups, view, regions, active):
+def chinese_references(db, now):
+    # Older databases can supply event titles as soon as the new homepage is published.
+    has_translations = db.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='article_chinese_references'"
+    ).fetchone()
+    translation = "r.headline_zh" if has_translations else "NULL"
+    join = "LEFT JOIN article_chinese_references r ON r.article_id=a.id" if has_translations else ""
+    cutoff = (now - timedelta(days=2)).isoformat()
+    rows = db.execute(f"""SELECT a.url,a.title,{translation},e.title_zh FROM articles a
+        LEFT JOIN events e ON e.id=a.event_id {join}
+        WHERE a.collected_at>=?""", (cutoff,))
+    references = {}
+    for url, original, translated, event in rows:
+        if needs_chinese_reference(original):
+            if headline := chinese_headline(translated):
+                references[url, original] = ("中文参考", headline)
+            elif headline := chinese_headline(event):
+                references[url, original] = ("关联事件", headline)
+    return references
+
+
+def _rss_panel(groups, view, regions, active, references):
+    from .engine import canonical_url
     output = []
     for group in groups:
         items = []
         for article in group["titles"]:
             url = external_url(article.get("url", ""))
-            title = escape(article.get("title", ""))
+            original = article.get("title", "")
+            title = escape(original)
             if not url or not title:
                 continue
             author = escape(article.get("source_name", ""))
@@ -290,8 +344,18 @@ def _rss_panel(groups, view, regions, active):
             source_meta = f'<span class="news-source">{author}</span>' if author else ""
             rest = " · ".join(filter(None, (region_label, stamp, badge)))
             metadata = " · ".join(filter(None, (source_meta, rest)))
-            items.append(f'<li data-region="{region}"><a href="{escape(url)}" rel="noreferrer">{title}</a>'
-                         f'<small>{metadata}</small></li>')
+            reference = translate_link = ""
+            if needs_chinese_reference(original):
+                label, headline = references.get((canonical_url(url), original), ("", ""))
+                if headline:
+                    reference = (f'<p class="news-reference" lang="zh-Hans" data-chinese-reference>'
+                                 f'<span class="reference-label">{label}</span>{escape(headline)}</p>')
+                if label != "中文参考":
+                    query = urlencode({"sl": "auto", "tl": "zh-CN", "text": original, "op": "translate"})
+                    translate_link = (f'<a class="translation-link" href="https://translate.google.com/?{escape(query)}"'
+                                      f' target="_blank" rel="noopener noreferrer">翻译标题</a>')
+            items.append(f'<li data-region="{region}"><a class="news-title" href="{escape(url)}" rel="noreferrer">{title}</a>'
+                         f'{reference}<small><span class="source-meta">{metadata}</span>{translate_link}</small></li>')
         if items:
             output.append((f'<section class="topic-card"><h3>{escape(group["word"])} <small>{len(items)} 条</small></h3>'
                            f'<ul>{"".join(items)}</ul></section>', len(items)))
@@ -327,7 +391,7 @@ def hotlist_groups(results, names, settings):
     return groups
 
 
-def render_home(current, new, now, mode="current", *, hotlist=(), regions=None, brief=None, today=None):
+def render_home(current, new, now, mode="current", *, hotlist=(), regions=None, brief=None, today=None, references=None):
     recent, all_groups = rss_groups(current, new, mode)
     active = "today" if today else "all" if mode != "incremental" and not recent and all_groups else "recent"
     regions = regions or {}
@@ -336,7 +400,7 @@ def render_home(current, new, now, mode="current", *, hotlist=(), regions=None, 
     if mode != "incremental":
         views.append(("all", "今日全部" if mode == "daily" else "当前全部", all_groups))
     views.append(("hot", "热点榜单", hotlist))
-    rendered = [(view, label, *_rss_panel(groups, view, regions, active)) for view, label, groups in views]
+    rendered = [(view, label, *_rss_panel(groups, view, regions, active, references or {})) for view, label, groups in views]
     switch = "".join(
         f'<button type="button" data-show="{view}" aria-pressed="{str(view == active).lower()}">{label} {count}</button>'
         for view, label, _, count in rendered)
@@ -345,7 +409,7 @@ def render_home(current, new, now, mode="current", *, hotlist=(), regions=None, 
     body = f"""{_latest_brief(brief, now)}<h2 id="browse" class="news-heading">新闻速览</h2>
 <div class="scope" aria-labelledby="browse">{switch}</div>
 <div class="controls">
-<input type="search" aria-label="搜索新闻标题或来源" placeholder="搜索标题或来源">
+<input type="search" aria-label="搜索原文、中文参考或来源" placeholder="搜索原文、中文参考或来源">
 <select aria-label="来源地区" id="region"><option value="">全部来源</option>
 <option value="domestic">国内来源</option><option value="international">海外来源</option></select>
 <details class="export-menu"><summary>导出</summary><div class="actions">
@@ -366,8 +430,10 @@ function filterNews() {
   for (const section of active.querySelectorAll('section')) {
     let matches = 0;
     for (const entry of section.querySelectorAll('li')) {
+      const searchable = [...entry.querySelectorAll('.news-title,[data-chinese-reference],.source-meta')]
+        .map(element => element.textContent).join(' ').toLowerCase();
       entry.hidden = Boolean(region.value && region.value !== entry.dataset.region)
-        || !terms.every(term => entry.textContent.toLowerCase().includes(term));
+        || !terms.every(term => searchable.includes(term));
       if (!entry.hidden) matches++;
     }
     section.hidden = matches === 0;
@@ -427,8 +493,13 @@ document.querySelector('#export').addEventListener('click', () => {
   for (const section of active.querySelectorAll('section:not([hidden])')) {
     lines.push('', '## ' + section.querySelector('h3').textContent.trim());
     for (const entry of section.querySelectorAll('li:not([hidden])')) {
-      const link = entry.querySelector('a');
-      lines.push('- ' + link.textContent + ' · ' + entry.querySelector('small').textContent + ' <' + link.href + '>');
+      const link = entry.querySelector('.news-title');
+      lines.push('- ' + link.textContent + ' · ' + entry.querySelector('.source-meta').textContent + ' <' + link.href + '>');
+      const reference = entry.querySelector('[data-chinese-reference]');
+      if (reference) {
+        const label = reference.querySelector('.reference-label').textContent;
+        lines.push('  ' + label + '：' + reference.textContent.slice(label.length));
+      }
     }
   }
   const url = URL.createObjectURL(new Blob([lines.join(String.fromCharCode(10))], {type: 'text/markdown;charset=UTF-8'}));
@@ -453,9 +524,9 @@ def _upload(key, content, cache_control):
     ))
 
 
-def publish_home(current, new, now, mode, *, hotlist=(), regions=None, brief=None, today=None):
+def publish_home(current, new, now, mode, *, hotlist=(), regions=None, brief=None, today=None, references=None):
     if public_origin():
-        page = render_home(current, new, now, mode, hotlist=hotlist, regions=regions, brief=brief, today=today)
+        page = render_home(current, new, now, mode, hotlist=hotlist, regions=regions, brief=brief, today=today, references=references)
         _upload("index.html", page, "public, max-age=120")
 
 
