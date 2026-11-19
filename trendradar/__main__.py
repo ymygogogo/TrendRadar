@@ -1648,9 +1648,11 @@ class NewsAnalyzer:
             extension.ingest_hotlist(results, names)
             if rss_data is not None and any(item.get("success") for item in health.values()):
                 try:
-                    public_site.publish_home(rss_items, rss_new_items, extension.now(), self.report_mode)
+                    hotlist = public_site.hotlist_groups(results, names, extension.settings)
+                    public_site.publish_home(rss_items, rss_new_items, extension.now(), self.report_mode,
+                                             hotlist=hotlist)
                 except Exception as error:
-                    print(f"[市场情报] 公网 RSS 发布失败: {type(error).__name__}")
+                    print(f"[市场情报] 公网新闻发布失败: {type(error).__name__}")
             extension.analyze_pending()
             extension.dispatch_urgent()
             extension.dispatch_digest()

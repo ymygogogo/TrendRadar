@@ -8,12 +8,13 @@ import hashlib
 import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+from ipaddress import ip_address, ip_network
 import os
 from pathlib import Path
 import secrets
 import ssl
 import threading
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlsplit
 
 from . import digests, operator_settings, status
 from .admin_view import render_dashboard, render_digest
@@ -69,18 +70,21 @@ def visible_values(settings):
     }
 
 
-def render(settings, token, message="", snapshot=None):
-    return render_dashboard(settings, FIELDS, token, message, snapshot)
+def render(settings, token, message="", snapshot=None, *, news_url=""):
+    return render_dashboard(settings, FIELDS, token, message, snapshot, news_url=news_url)
 
 
 class AdminServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, address, base, settings_path, password_path, origin, status_path=None, report_dir=None):
+    def __init__(self, address, base, settings_path, password_path, origin, status_path=None, report_dir=None, *,
+                 news_url="", trusted_networks=()):
         self.base = base
         self.settings_path = settings_path
         self.password_path = password_path
         self.origin = origin
+        self.news_url = news_url
+        self.trusted_networks = tuple(ip_network(cidr.strip()) for cidr in trusted_networks)
         self.status_path = status_path
         self.report_dir = Path(report_dir) if report_dir else None
         self.token = secrets.token_urlsafe(32)
@@ -91,7 +95,25 @@ class AdminServer(ThreadingHTTPServer):
         return {**visible_values(self.base), **operator_settings.read(self.settings_path, self.base)}
 
 
-class AdminRequest(BaseHTTPRequestHandler):
+class RedirectResponse:
+    def redirect(self, location):
+        self.send_response(302)
+        self.send_header("Location", location)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+
+class AdminRedirect(RedirectResponse, BaseHTTPRequestHandler):
+    def do_GET(self):
+        path = urlsplit(self.path).path
+        location = self.server.news_url if path in ("/news", "/news/") else self.server.origin + "/admin/"
+        self.redirect(location)
+
+    do_HEAD = do_GET
+
+
+class AdminRequest(RedirectResponse, BaseHTTPRequestHandler):
     def setup(self):
         self.request.settimeout(15)
         super().setup()
@@ -109,6 +131,15 @@ class AdminRequest(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def authorized(self):
+        if self.server.trusted_networks:
+            # Use the socket peer. A client can supply arbitrary forwarding headers.
+            peer = ip_address(self.client_address[0])
+            host = self.headers.get("Host", "").lower()
+            if (host == urlsplit(self.server.origin).netloc
+                    and any(peer in network for network in self.server.trusted_networks)):
+                return True
+            self.reply(403)
+            return False
         header = self.headers.get("Authorization", "")
         if header.startswith("Basic ") and len(header) <= 1024:
             try:
@@ -137,6 +168,13 @@ class AdminRequest(BaseHTTPRequestHandler):
             self.reply(200, content, csp=REPORT_CSP)
 
     def do_GET(self):
+        path = urlsplit(self.path).path
+        if path == "/admin" or (path == "/" and self.server.news_url):
+            self.redirect("/admin/")
+            return
+        if path in ("/news", "/news/") and self.server.news_url:
+            self.redirect(self.server.news_url)
+            return
         if self.path in ("/", "/news/"):
             self.show_news()
             return
@@ -158,7 +196,8 @@ class AdminRequest(BaseHTTPRequestHandler):
                 else:
                     self.reply(200, status.metrics(snapshot), content_type="text/plain; version=0.0.4; charset=utf-8")
             else:
-                self.reply(200, render(self.server.settings(), self.server.token, snapshot=snapshot))
+                self.reply(200, render(self.server.settings(), self.server.token, snapshot=snapshot,
+                                       news_url=self.server.news_url))
 
     def do_POST(self):
         if self.path != "/admin/":
@@ -174,7 +213,7 @@ class AdminRequest(BaseHTTPRequestHandler):
             if not 0 < size <= MAX_FORM_BYTES:
                 raise ValueError("表单长度不符")
             form = parse_qs(self.rfile.read(size).decode(), keep_blank_values=True, max_num_fields=8)
-            if not hmac.compare_digest(form.get("token", [""])[0], self.server.token):
+            if not hmac.compare_digest(form.get("token", [""])[0].encode(), self.server.token.encode()):
                 self.reply(403)
                 return
             values = {key: int(form[key][0]) for key, _ in FIELDS}
@@ -183,10 +222,12 @@ class AdminRequest(BaseHTTPRequestHandler):
                 operator_settings.write(self.server.settings_path, values, self.server.base)
         except (ValueError, KeyError):
             self.reply(400, render(self.server.settings(), self.server.token,
-                                   "设置无效，请检查数值范围和阈值顺序。", status.read(self.server.status_path)))
+                                   "设置无效，请检查数值范围和阈值顺序。", status.read(self.server.status_path),
+                                   news_url=self.server.news_url))
         else:
             self.reply(200, render(self.server.settings(), self.server.token,
-                                   "已保存，下轮任务生效。", status.read(self.server.status_path)))
+                                   "已保存，下轮任务生效。", status.read(self.server.status_path),
+                                   news_url=self.server.news_url))
 
 
 def main():
@@ -203,12 +244,21 @@ def main():
 
     base = load_config()["MARKET_INTELLIGENCE"]
     status_path = os.environ.get("MARKET_STATUS_PATH")
+    trusted_networks = os.environ.get("MARKET_ADMIN_TRUSTED_NETWORKS")
     server = AdminServer(("0.0.0.0", 8443), base, state / "settings.json", password_path,
-                         "https://tr.yumy.space", status_path, os.environ.get("MARKET_REPORT_DIR"))
+                         "https://tr.yumy.space", status_path, os.environ.get("MARKET_REPORT_DIR"),
+                         news_url=os.environ.get("MARKET_ADMIN_NEWS_URL", ""),
+                         trusted_networks=trusted_networks.split(",") if trusted_networks else ())
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.load_cert_chain(private / "fullchain.pem", private / "privkey.pem")
     server.socket = context.wrap_socket(server.socket, server_side=True, do_handshake_on_connect=False)
+    redirect_port = os.environ.get("MARKET_ADMIN_HTTP_REDIRECT_PORT")
+    if redirect_port:
+        redirect = ThreadingHTTPServer(("0.0.0.0", int(redirect_port)), AdminRedirect)
+        redirect.origin = server.origin
+        redirect.news_url = server.news_url or server.origin + "/news/"
+        threading.Thread(target=redirect.serve_forever, daemon=True).start()
     server.serve_forever()
 
 
