@@ -54,7 +54,7 @@ def test_public_readback_gates_wecom_and_publishes_only_public_fields(tmp_path, 
                            "direction": "potential_positive", "event_id": "x", "revision": 1}]}
     try:
         assert not engine.send_digest_edition("digest:test", edition, ["wework"])
-        assert not sent
+        assert not sent and public_site.latest_published_edition(engine.db) is None
         assert engine.send_digest_edition("digest:test", edition, ["wework"])
         assert not engine.send_digest_edition("digest:test", edition, ["wework"])
         assert len(sent) == 1 and "潜在利好" in sent[0] and "#event-1)" in sent[0]
@@ -64,6 +64,8 @@ def test_public_readback_gates_wecom_and_publishes_only_public_fields(tmp_path, 
         assert "news=12" in rendered and "not-public" not in rendered and "192.168.0.1" not in rendered
         assert "/admin/" not in rendered
         assert f"{edition['id']}.html" in uploads["digests/index.html"].decode()
+        assert public_site.latest_published_edition(engine.db)["id"] == edition["id"]
+        assert "本期导读" in rendered and 'href="#event-1"' in rendered
     finally:
         engine.close()
 
@@ -83,3 +85,23 @@ def test_hotlist_merges_filtered_ranked_headlines_into_public_home(monkeypatch):
     assert "https://example.com/chips" in page and "https://example.com/trade" in page
     assert "演唱会" not in page and "token=private" not in page and "tr.yumy.space" not in page
     assert "导出 Markdown" in page and "导出图片" in page and "/digests/index.html" in page
+
+
+
+def test_home_exposes_regions_and_latest_brief_with_stable_event_links():
+    groups = [{"word": "科技", "titles": [
+        {"title": "芯片设备", "url": "https://example.com/cn", "source_id": "cn", "source_name": "国内财经"},
+        {"title": "Chip launch", "url": "https://example.net/en", "source_id": "en", "source_name": "BBC"},
+    ]}]
+    brief = {"id": "b" * 24, "title": "最新一期", "created_at": NOW.isoformat(), "events": [
+        {"title": "<国内三条>", "edition_region": "domestic"},
+        {"title": "国内二", "edition_region": "domestic"},
+        {"title": "国内三", "edition_region": "domestic"},
+        {"title": "海外一", "edition_region": "international"},
+    ]}
+    page = public_site.render_home(groups, [], NOW, regions={"cn": "domestic", "en": "international"},
+                                   brief=brief).decode()
+    assert 'data-show="all" aria-pressed="true"' in page
+    assert 'data-region="domestic"' in page and 'data-region="international"' in page
+    assert "搜索标题或来源" in page and "最新一期" in page and "&lt;国内三条&gt;" in page
+    assert f'/digests/{brief["id"]}.html#event-4' in page and "国内 3 条 · 海外 1 条" in page

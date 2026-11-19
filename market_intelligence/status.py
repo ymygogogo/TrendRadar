@@ -15,6 +15,10 @@ def snapshot(db, now, channels=None, model=None):
         ("deliveries", "SELECT state,count(*) FROM deliveries GROUP BY 1"),
     ):
         status[key] = {row[0]: row[1] for row in db.execute(query)}
+    oldest, recent = db.execute("""SELECT min(collected_at),
+        sum(CASE WHEN julianday(collected_at)>=julianday(?) THEN 1 ELSE 0 END)
+        FROM articles WHERE analysis_state='pending'""", ((now - timedelta(hours=1)).isoformat(),)).fetchone()
+    status["analysis_queue"] = {"oldest_at": oldest, "last_hour": recent or 0}
     status["analysis_attempts"] = db.execute("SELECT count(*) FROM analysis_attempts").fetchone()[0]
     status["model"] = model or {}
     days = [(now.date() - timedelta(days=offset)).isoformat() for offset in range(6, -1, -1)]
