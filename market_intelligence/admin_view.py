@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 from .model_settings import FIELDS as MODEL_FIELDS
 from .notification_settings import LIST_FIELDS, NUMBER_FIELDS, TIME_FIELDS
+from .ui_theme import THEME
 
 
 CHANNEL_NAMES = {
@@ -28,14 +29,11 @@ DELIVERY_STATES = {"delivered": "成功", "failed": "失败", "pending": "待投
 VERIFICATION_STATES = {"confirmed": "已确认", "corroborated": "多源印证", "unverified": "待核实"}
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 
-STYLE = """
-:root { color-scheme: dark; --bg:#10141d; --panel:#18202d; --edge:#354255;
-        --text:#eef3fb; --muted:#b0bdce; --accent:#8de3f6; --good:#88e2bb; --warn:#ffcc88; }
-* { box-sizing:border-box; }
+STYLE = THEME + """
+:root { --panel:var(--surface); --text:var(--ink); }
 html { scroll-padding-block-start:5rem; }
-body { margin:0; background:var(--bg); color:var(--text); font:1rem/1.55 system-ui,sans-serif; }
+body { margin:0; background:var(--bg); color:var(--text); font:1rem/1.55 var(--font); }
 a { color:var(--accent); text-underline-offset:.22em; }
-:focus-visible { outline:2px solid var(--accent); outline-offset:4px; }
 .model-usage { margin-top:1rem; }
 .usage-chart { display:block; width:100%; min-height:8rem; }
 .usage-chart text { fill:#b7c5da; font:13px system-ui,sans-serif; }
@@ -44,9 +42,13 @@ a { color:var(--accent); text-underline-offset:.22em; }
 .usage-key span:nth-child(2) { color:#b9a5ff; }
 .attempt-key span:first-child { color:#74e6a6; }
 .model-usage summary { cursor:pointer; width:fit-content; }
-.top { background:var(--panel); border-block-end:1px solid var(--edge); position:sticky; top:0; z-index:3; }
+.top { background:var(--header); border-block-end:1px solid var(--edge-soft); position:sticky; top:0; z-index:3; }
 .workflow { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.75rem; margin:1rem 0; }
-.workflow .panel { display:grid; align-content:start; gap:.3rem; }
+.workflow .panel { display:grid; align-content:start; gap:.35rem; border-top:2px solid var(--edge); }
+.workflow .panel.attention { border-top-color:var(--warn); }
+.workflow .panel h3 { color:var(--muted); font-size:.9rem; font-weight:630; }
+.workflow .panel h3 a { font-size:.82rem; text-decoration:none; }
+.workflow-status { font-size:clamp(1.14rem,2.15vw,1.48rem); font-weight:730; letter-spacing:-.015em; }
 .workflow h3 { display:flex; align-items:baseline; justify-content:space-between; gap:.35rem; }
 .workflow p { overflow-wrap:anywhere; }
 .channel-details { margin:.8rem 0 .15rem; }
@@ -59,28 +61,28 @@ nav a { white-space:nowrap; }
   .workflow { grid-template-columns:1fr; }
 }
 
-.bar, main { width:min(100% - 2rem, 75rem); margin-inline:auto; }
+.bar, main { width:min(100% - 2.5rem, 75rem); margin-inline:auto; }
 .bar { display:flex; align-items:center; justify-content:space-between; gap:.5rem 1.5rem;
-       flex-wrap:wrap; padding-block:.75rem; }
-.brand { font-weight:760; letter-spacing:.025em; }
-nav { display:flex; flex-wrap:wrap; gap:.3rem 1rem; }
-nav a { display:inline-block; padding:.3rem 0; }
+       flex-wrap:wrap; min-height:3.65rem; padding-block:.45rem; }
+nav { display:flex; flex-wrap:wrap; gap:.22rem; }
+nav a { display:inline-block; padding:.42rem .68rem; color:var(--muted); text-decoration:none; border-radius:.38rem; }
+nav a:hover,nav a:focus-visible { color:var(--accent); background:var(--accent-quiet); }
 main { padding-block:1.75rem 3rem; }
 section { margin-block-end:2rem; }
 h1,h2,h3,p,dl { margin:0; }
-h1 { font-size:clamp(1.65rem,4vw,2.2rem); letter-spacing:.02em; }
-h2 { font-size:1.35rem; }
+h1 { font-size:clamp(1.65rem,4vw,2.25rem); letter-spacing:-.035em; }
+h2 { font-size:1.3rem; letter-spacing:-.015em; }
 h3 { font-size:1rem; }
 .heading { display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap;
            gap:.25rem .75rem; margin-block-end:.75rem; }
 .heading p,.muted { color:var(--muted); font-size:.9rem; }
-.panel,.stats > div { background:var(--panel); border:1px solid var(--edge); border-radius:.8rem; }
+.panel,.stats > div { background:var(--panel); border:1px solid var(--edge); border-radius:var(--radius); }
 .panel { padding:clamp(.85rem,2vw,1.3rem); min-width:0; }
 .stats { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.75rem; margin-block-end:.75rem; }
-.stats > div { padding:.8rem 1rem; }
+.stats > div { padding:.7rem .9rem; }
 .queue-note { margin-block-end:.75rem; }
 dt { color:var(--muted); font-size:.9rem; }
-dd { margin:0; font-size:1.8rem; font-weight:700; color:var(--text); font-variant-numeric:tabular-nums; }
+dd { margin:0; font-size:1.55rem; font-weight:700; color:var(--text); font-variant-numeric:tabular-nums; }
 dd small { font-size:.85rem; font-weight:400; color:var(--muted); }
 .events { list-style:none; padding:0; margin:.25rem 0 0; }
 .events li { display:grid; grid-template-columns:2.65rem minmax(0,1fr); align-items:start;
@@ -91,10 +93,13 @@ dd small { font-size:.85rem; font-weight:400; color:var(--muted); }
 .tag { display:inline-block; width:max-content; border:1px solid var(--edge); border-radius:.35rem;
        padding:.05rem .38rem; font-size:.8rem; font-weight:650; white-space:nowrap; }
 .good { color:var(--good); } .warn { color:var(--warn); } .info { color:var(--accent); }
+.tag.good { background:#162f29; border-color:#38594e; }
+.tag.warn { background:#362a20; border-color:#604b37; }
+.tag.info { background:var(--accent-quiet); border-color:#36566a; }
 .channels { display:grid; grid-template-columns:minmax(0,1.4fr) minmax(0,1fr); gap:.75rem; }
 .scroll { overflow-x:auto; margin-block-start:.5rem; }
 table { width:100%; border-collapse:collapse; text-align:left; font-size:.9rem; }
-th,td { padding:.55rem .55rem .55rem 0; border-block-end:1px solid var(--edge); vertical-align:top; }
+th,td { padding:.55rem .55rem .55rem 0; border-block-end:1px solid var(--edge-soft); vertical-align:top; }
 thead th { color:var(--muted); font-weight:600; white-space:nowrap; }
 tbody th { font-weight:650; overflow-wrap:anywhere; min-width:6rem; }
 tbody tr:last-child > * { border-block-end:0; }
@@ -102,22 +107,36 @@ tbody tr:last-child > * { border-block-end:0; }
 .time-cell { white-space:nowrap; }
 form label { display:block; color:var(--text); font-weight:550; }
 .form-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.75rem 1rem; margin-block-end:1rem; }
-input,textarea { background:var(--bg); border:1px solid #687b92; border-radius:.4rem;
+input,textarea { background:var(--bg); border:1px solid var(--edge); border-radius:.42rem;
                  width:100%; display:block; margin:.3rem 0 0; padding:.45rem .6rem; color:inherit; font:inherit; }
 textarea { resize:vertical; }
-button { background:var(--accent); color:#0e2530; border:0; border-radius:.4rem;
+input:hover,textarea:hover { border-color:var(--muted); }
+button { background:var(--accent); color:var(--accent-ink); border:0; border-radius:.45rem; min-height:2.65rem;
          font:inherit; font-weight:700; padding:.55rem 1rem; margin-block-start:.85rem; cursor:pointer; }
-.message { margin-block-end:.65rem; color:var(--accent); }
+.message { margin-block-end:.65rem; padding:.45rem .6rem; border-radius:.35rem; color:var(--accent); background:var(--accent-quiet); }
 .notify-form fieldset { border:0; padding:0; margin:0 0 .9rem; min-width:0; }
 .notify-form legend { padding:0; margin-bottom:.45rem; font-weight:700; }
 .notify-form .form-grid { margin:.55rem 0; }
 .notify-form .switch { display:flex; align-items:center; gap:.55rem; margin-bottom:.65rem; }
 .notify-form input[type=checkbox] { width:1rem; height:1rem; margin:0; }
-.notify-form input[type=time] { min-width:0; }
-.notify-form fieldset + fieldset { border-top:1px solid var(--edge); padding-top:.65rem; }
+
+.notify-form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); column-gap:1.35rem; }
+.notify-form .message { grid-column:1/-1; }
+.notify-form .form-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.notify-form button { grid-column:1/-1; justify-self:start; }
+.notify-form fieldset + fieldset { border-top:0; border-inline-start:1px solid var(--edge-soft); padding:0 0 0 1.35rem; }
+@media (max-width:50rem) {
+  .notify-form { grid-template-columns:minmax(0,1fr); }
+  .notify-form .slot-list { grid-column:1/-1; }
+  .notify-form fieldset + fieldset { border-inline-start:0; border-top:1px solid var(--edge-soft); padding:.6rem 0 0; }
+}
 
 @media (max-width:62rem) { .channels { grid-template-columns:minmax(0,1fr); } }
 @media (max-width:39rem) {
+  .bar,main { width:calc(100% - 1.5rem); }
+  .bar { padding-block:.55rem; }
+  .bar nav { gap:.18rem; }
+  .bar nav a { font-size:.86rem; padding:.35rem .4rem; }
   .stats,.form-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .stats > div { padding:.65rem; }
   main { padding-block-start:1.15rem; }
@@ -125,7 +144,9 @@ button { background:var(--accent); color:#0e2530; border:0; border-radius:.4rem;
   th,td { padding-inline-end:.32rem; }
   .cell-detail { white-space:normal; }
 }
-@media (max-width:23rem) { .form-grid { grid-template-columns:minmax(0,1fr); } }
+@media (max-width:23rem) {
+  .form-grid,.notify-form .form-grid { grid-template-columns:minmax(0,1fr); }
+}
 """
 
 
@@ -163,12 +184,13 @@ def render_workflow(snapshot, settings):
     sent = [channel["latest"][1] for channel in active if channel["latest"] and channel["latest"][0] == "delivered"]
     latest = f"最近成功 {local_time(max(sent))}" if sent else "暂无近期成功记录"
     return f"""<div class="workflow" aria-label="处理进度">
-<div class="panel"><h3>采集 <a href="#channels">渠道</a></h3><p class="{'warn' if failed else ''}">{collection}</p>
+<div class="panel{' attention' if failed else ''}"><h3>采集 <a href="#channels">渠道</a></h3>
+<p class="workflow-status{' warn' if failed else ''}">{collection}</p>
 <p class="muted">共 {len(sources)} 个来源{f' · {waiting} 个等待首轮' if waiting else ''}</p></div>
-<div class="panel"><h3>分析 <a href="#model">用量</a></h3><p aria-label="待分析 {pending} 篇">{pending:,} 篇待分析</p>
+<div class="panel"><h3>分析 <a href="#model">用量</a></h3><p class="workflow-status" aria-label="待分析 {pending} 篇">{pending:,} 篇待分析</p>
 <p class="muted">{budget}</p>{queued}</div>
-<div class="panel"><h3>推送 <a href="#delivery">投递</a></h3>
-<p class="{'warn' if issue else ''}">{len(active)} 个启用 · {issue} 个需关注</p>
+<div class="panel{' attention' if issue else ''}"><h3>推送 <a href="#delivery">投递</a></h3>
+<p class="workflow-status{' warn' if issue else ''}">{len(active)} 个启用 · {issue} 个需关注</p>
 <p class="muted">{pending_delivery:,} 条待投递 · {latest}</p></div>
 </div>"""
 
@@ -333,10 +355,11 @@ def render_notification_settings(values, threshold, token, message):
     if values is None:
         return ""
     note = f'<p class="message" role="status">{escape(message)}</p>' if message else ""
-    slots = "".join(f'<label>{label}<input type="text" name="{key}" maxlength="56" '
+    slots = "".join(f'<label class="slot-list">{label}<input type="text" name="{key}" maxlength="56" '
                     f'value="{escape(", ".join(values[key]))}"></label>' for key, label in LIST_FIELDS)
-    single = "".join(f'<label>{label}<input type="time" name="{key}" value="{escape(values[key])}"></label>'
-                     for key, label in TIME_FIELDS)
+    single = "".join(f'<label>{label}<input type="text" name="{key}" maxlength="5" '
+                     'placeholder="HH:MM" pattern="(?:[01][0-9]|2[0-3]):[0-5][0-9]" '
+                     f'value="{escape(values[key])}"></label>' for key, label in TIME_FIELDS)
     limits = "".join(
         f'<label>{label}<input type="number" name="{key}" min="{minimum}" max="{maximum}" '
         f'required value="{int(values[key])}"></label>' for key, label, minimum, maximum in NUMBER_FIELDS)
@@ -373,7 +396,7 @@ def render_dashboard(settings, fields, token, message, snapshot, *, news_url="",
 </head>
 <body>
 <header class="top"><div class="bar">
-<span class="brand">TrendRadar 管理</span>
+<a class="brand" href="/admin/">TrendRadar <small>管理</small></a>
 <nav aria-label="页面导航">
 <a href="#overview">总览</a><a href="#channels">渠道</a><a href="#push-settings">推送设置</a><a href="#model">模型与用量</a><a href="#settings">运行设置</a>
 <a href="{escape(news_url or "/news/")}">新闻报告</a>
@@ -474,8 +497,9 @@ def _digest_event(event, number):
 def render_digest(edition, *, public=False):
     from .digests import DIRECTIONS_ZH, REGION_LABELS, region_summary
 
-    navigation = ('<nav aria-label="简报导航"><a href="/">新闻首页</a><a href="/digests/index.html">简报历史</a></nav>'
-                  if public else '<a href="/admin/">返回 TrendRadar 管理</a>')
+    navigation = ('<a class="brand" href="/">TrendRadar <small>简报</small></a>'
+                  '<nav aria-label="简报导航"><a href="/">新闻首页</a><a href="/digests/index.html">简报历史</a></nav>'
+                  if public else '<a class="brand" href="/admin/">TrendRadar <small>返回管理</small></a>')
     entries = "".join(_digest_event(event, number) for number, event in enumerate(edition["events"], 1))
     actual = len(edition["events"])
     overview = ""
@@ -523,6 +547,7 @@ def render_digest(edition, *, public=False):
 .brief-index ol {{ margin:.35rem 0 0; padding-inline-start:1.4rem; }}
 .brief-index li {{ padding:.32rem 0; overflow-wrap:anywhere; }}
 .brief-index small {{ display:block; }}
+.brief-index a {{ color:var(--ink); font-weight:650; }}
 .brief-event > h2 {{ font-size:clamp(1.16rem,3vw,1.4rem); }}
 .brief-event:target {{ outline:2px solid var(--accent); }}
 .brief-event h3 {{ margin-block:.85rem .15rem; color:var(--accent); }}

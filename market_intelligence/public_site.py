@@ -17,6 +17,7 @@ from trendradar.report.rss_views import rss_groups
 
 from .digests import digest_url, region_summary, safe_url
 from .news_topics import NewsTopics, TOPIC_LABELS
+from .ui_theme import THEME
 
 
 def public_origin():
@@ -74,75 +75,89 @@ def public_edition(edition):
     }
 
 
-SITE_STYLE = """
-:root { color-scheme:dark; --bg:#10141d; --surface:#182231; --edge:#34465d; --ink:#eef3fb;
-  --muted:#b4c3d5; --accent:#8de3f6; color:var(--ink); background:var(--bg); font:1rem/1.6 system-ui,sans-serif; }
-* { box-sizing:border-box; }
+SITE_STYLE = THEME + """
+:root { color:var(--ink); background:var(--bg); font:1rem/1.6 var(--font); }
 body { margin:0; }
-main,.masthead { width:min(100% - 2rem,72rem); margin-inline:auto; }
-header { border-bottom:1px solid var(--edge); background:#121b28; }
-.masthead { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:.4rem 1rem; padding:.75rem 0; }
-.brand { color:var(--ink); font-weight:760; text-decoration:none; }
-nav,.actions,.scope,.controls { display:flex; flex-wrap:wrap; gap:.45rem .75rem; align-items:center; }
-nav a { text-decoration:none; padding:.35rem .45rem; }
-[aria-current=page] { color:var(--ink); text-decoration:underline; text-underline-offset:.4rem; }
-main { padding:1.6rem 0 3rem; }
-a { color:var(--accent); overflow-wrap:anywhere; text-underline-offset:.2em; }
+main,.masthead { width:min(100% - 2.5rem,73rem); margin-inline:auto; }
+header { border-bottom:1px solid var(--edge-soft); background:var(--header); }
+.masthead { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:.4rem 1rem; min-height:3.65rem; padding:.4rem 0; }
+nav,.actions,.scope,.controls { display:flex; flex-wrap:wrap; gap:.45rem .6rem; align-items:center; }
+nav a { color:var(--muted); text-decoration:none; padding:.4rem .7rem; border-radius:.38rem; }
+nav a:hover,nav a[aria-current=page] { color:var(--accent); background:var(--accent-quiet); }
+main { padding:1.7rem 0 3rem; }
+a { color:var(--accent); overflow-wrap:anywhere; text-underline-offset:.22em; }
 h1,h2,p { margin:0; }
-h1 { font-size:clamp(1.7rem,5vw,2.5rem); line-height:1.15; }
-h2 { font-size:1.13rem; line-height:1.4; }
-small,.muted { color:var(--muted); font-size:.88rem; }
-#collected { margin:.45rem 0 1.15rem; }
-.brief,.topic-card,.history { border:1px solid var(--edge); border-radius:.85rem; background:var(--surface); }
-.brief { padding:clamp(.9rem,2.5vw,1.45rem); display:grid; gap:.6rem; }
-.brief h2 a { color:var(--ink); }
-.brief h2 { font-size:clamp(1.25rem,4vw,1.6rem); }
-.brief ul { margin:0; padding-inline-start:1.2rem; }
-.brief li { padding:.19rem 0; }
-.button-link { display:inline-block; padding:.42rem .75rem; border-radius:.45rem; background:var(--accent); color:#12202b; font-weight:700; text-decoration:none; }
-.news-heading { margin-top:1.65rem; }
+h1 { font-size:clamp(1.65rem,4.2vw,2.5rem); line-height:1.15; letter-spacing:-.035em; }
+h2 { font-size:1.16rem; line-height:1.4; }
+small,.muted { color:var(--muted); font-size:.85rem; }
+#collected { margin:.45rem 0 1.15rem; font-variant-numeric:tabular-nums; }
+.brief,.topic-card,.history { border:1px solid var(--edge); border-radius:var(--radius); background:var(--surface); }
+.brief {
+  padding:clamp(1rem,2.5vw,1.55rem); display:grid; gap:1rem;
+  grid-template-columns:minmax(0,.9fr) minmax(0,1.2fr); border-inline-start:3px solid var(--accent);
+}
+.brief-main { display:grid; align-content:start; gap:.5rem; min-width:0; }
+.brief h2 { font-size:clamp(1.3rem,3.2vw,1.77rem); letter-spacing:-.025em; }
+.brief h2 a,.brief li a { color:var(--ink); text-decoration:none; }
+.brief a:hover,.topic-card li a:hover { text-decoration:underline; }
+.brief ul { align-self:start; margin:0; padding:0 0 0 1.15rem; list-style:none; border-inline-start:1px solid var(--edge); }
+.brief li { padding:.4rem 0; border-bottom:1px solid var(--edge-soft); }
+.brief li:first-child { padding-top:0; }
+.brief li:last-child { padding-bottom:0; border:0; }
+.brief li a { display:block; font-weight:620; }
+.brief .actions { margin-top:.15rem; }
+.button-link { display:inline-flex; align-items:center; padding:.45rem .8rem; min-height:2.65rem; border-radius:.45rem;
+  background:var(--accent); color:var(--accent-ink); font-weight:720; text-decoration:none; }
+.news-heading { margin-top:1.85rem; }
 .controls,.scope { margin:.65rem 0; }
 .controls input { flex:1; min-width:min(100%,14rem); }
-button,input,select { color:inherit; background:#162131; font:inherit; border:1px solid #6d8199; border-radius:.5rem; padding:.45rem .65rem; }
+button,input,select { color:inherit; background:var(--surface); font:inherit; border:1px solid var(--edge);
+  border-radius:.45rem; padding:.42rem .7rem; min-height:2.6rem; }
+input::placeholder { color:var(--muted); }
 button, summary { cursor:pointer; }
-button[aria-pressed=true] { border-color:var(--accent); background:#233849; color:var(--accent); font-weight:650; }
+button:hover, select:hover, input:hover { border-color:var(--muted); }
+button[aria-pressed=true] { border-color:var(--accent); background:var(--accent-quiet); color:var(--accent); font-weight:690; }
 .export-menu { position:relative; }
-.export-menu summary { padding:.4rem .55rem; }
-.export-menu .actions { position:absolute; inset-inline-end:0; z-index:2; width:max-content; max-width:85vw; padding:.5rem; background:#121b28; border:1px solid var(--edge); border-radius:.55rem; }
+.export-menu summary { padding:.4rem .55rem; color:var(--muted); }
+.export-menu .actions { position:absolute; inset-inline-end:0; z-index:2; width:max-content; max-width:85vw;
+  padding:.5rem; background:var(--header); border:1px solid var(--edge); border-radius:.55rem; }
 .news-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.8rem; align-items:start; margin-top:.55rem; }
-.topic-card { padding:.9rem 1rem; min-width:0; }
+.topic-card { padding:.85rem 1rem; min-width:0; }
 .topic-card h3 { font-size:1rem; margin:0; display:flex; align-items:baseline; justify-content:space-between; gap:.5rem; }
-.topic-card ul,.history { padding:0; margin:.55rem 0 0; list-style:none; }
-.topic-card li,.history li { padding:.65rem 0; border-top:1px solid var(--edge); }
+.topic-card h3 small { font-variant-numeric:tabular-nums; }
+.topic-card ul,.history { padding:0; margin:.5rem 0 0; list-style:none; }
+.topic-card li,.history li { padding:.69rem 0; border-top:1px solid var(--edge-soft); }
 .topic-card li:last-child { padding-bottom:0; }
-.topic-card li a { color:var(--ink); text-decoration:none; font-weight:620; }
-.topic-card li a:hover { text-decoration:underline; }
-.topic-card li small { display:block; margin-top:.15rem; }
+.topic-card li a { display:block; color:var(--ink); text-decoration:none; font-weight:620; }
+.topic-card li small { display:block; margin-top:.1rem; }
+.news-source { margin-inline-end:.15rem; color:var(--accent); font-weight:580; }
 .history li { padding:.8rem 1rem; }
 .history li:first-child { border:0; }
 #result-summary { margin:.55rem 0; }
-:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
 [hidden] { display:none!important; }
 @media (max-width:44rem) {
-  .news-grid { grid-template-columns:1fr; }
+  main,.masthead { width:calc(100% - 2rem); }
+  .news-grid,.brief { grid-template-columns:1fr; }
+  .brief ul { padding:0; border-inline-start:0; border-top:1px solid var(--edge); padding-top:.65rem; }
+  header nav { gap:.15rem; }
+  header nav a { padding:.35rem .42rem; font-size:.88rem; }
   main { padding-top:1.15rem; }
   .controls input { flex-basis:100%; }
   .export-menu .actions { position:static; width:auto; }
 }
 @media print {
-  :root { color-scheme:light; --ink:#111; --muted:#333; --edge:#ddd; --surface:#fff; --bg:#fff; --accent:#111; }
+  :root { color-scheme:light; --ink:#111; --muted:#333; --edge:#ddd; --edge-soft:#e5e5e5; --surface:#fff; --bg:#fff; --accent:#111; }
   header,.scope,.controls,.brief .actions { display:none; }
   .topic-card li { break-inside:avoid; }
 }
 """
-
 
 def _page(title, body, script="", *, history=False):
     current = ' aria-current="page"'
     return f"""<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} · TrendRadar</title><style>{SITE_STYLE}</style></head>
-<body><header><div class="masthead"><a class="brand" href="/">TrendRadar</a><nav aria-label="主导航">
+<body><header><div class="masthead"><a class="brand" href="/">TrendRadar <small>新闻</small></a><nav aria-label="主导航">
 <a href="/"{"" if history else current}>新闻首页</a><a href="/digests/index.html"{current if history else ""}>简报历史</a>
 </nav></div></header><main><h1>{title}</h1>{body}</main>{script}</body></html>""".encode()
 
@@ -156,7 +171,7 @@ def latest_published_edition(db):
 
 def _latest_brief(brief):
     if not brief or not re.fullmatch(r"[a-f0-9]{24}", brief["id"]):
-        return '<section class="brief"><h2>新闻简报</h2><p><a href="/digests/index.html">浏览简报历史</a></p></section>'
+        return '<section class="brief"><div class="brief-main"><h2>新闻简报</h2><p><a href="/digests/index.html">浏览简报历史</a></p></div></section>'
     path = digest_url("", brief["id"], public=True)
     stamp = datetime.fromisoformat(brief["created_at"]).strftime("%m-%d %H:%M")
     events = brief["events"]
@@ -170,9 +185,9 @@ def _latest_brief(brief):
         choices.add(index)
     items = "".join(f'<li><a href="{path}#event-{i + 1}">{escape(events[i]["title"])}</a></li>' for i in sorted(choices))
     return f"""<section class="brief" aria-label="最新简报">
-<p class="muted">最新简报 · {details}</p><h2><a href="{path}">{escape(brief["title"])}</a></h2>
-<ul>{items}</ul><div class="actions"><a class="button-link" href="{path}">阅读整期</a>
-<a href="/digests/index.html">浏览历史</a></div></section>"""
+<div class="brief-main"><p class="muted">最新简报 · {details}</p><h2><a href="{path}">{escape(brief["title"])}</a></h2>
+<div class="actions"><a class="button-link" href="{path}">阅读整期</a>
+<a href="/digests/index.html">浏览历史</a></div></div><ul>{items}</ul></section>"""
 
 
 def _rss_panel(groups, view, regions, active):
@@ -191,7 +206,9 @@ def _rss_panel(groups, view, regions, active):
                 region = ""
             region_label = {"domestic": "国内", "international": "海外"}.get(region, "")
             badge = "新增" if article.get("is_new") and view == "all" else ""
-            metadata = " · ".join(filter(None, (author, region_label, stamp, badge)))
+            source_meta = f'<span class="news-source">{author}</span>' if author else ""
+            rest = " · ".join(filter(None, (region_label, stamp, badge)))
+            metadata = " · ".join(filter(None, (source_meta, rest)))
             items.append(f'<li data-region="{region}"><a href="{escape(url)}" rel="noreferrer">{title}</a>'
                          f'<small>{metadata}</small></li>')
         if items:
@@ -255,7 +272,7 @@ def render_home(current, new, now, mode="current", *, hotlist=(), regions=None, 
 <button type="button" id="print">打印 / PDF</button></div></details></div>
 <p id="export-status" role="status" hidden></p>
 <p id="result-summary" class="muted" role="status">{"当前显示 " + str(initial_count) + " 条" if initial_count else "暂无新闻。"}</p>{panels}"""
-    return _page("海外与国内要闻", body, r"""<script>
+    return _page("全球要闻", body, r"""<script>
 const panels = [...document.querySelectorAll('[data-view]')];
 const buttons = [...document.querySelectorAll('[data-show]')];
 const search = document.querySelector('input[type=search]');
@@ -309,7 +326,7 @@ imageButton.addEventListener('click', async () => {
   try {
     imageLibrary ||= loadImageLibrary();
     await imageLibrary;
-    const canvas = await window.html2canvas(active, {backgroundColor: '#10141d', scale: 1, logging: false});
+    const canvas = await window.html2canvas(active, {backgroundColor: getComputedStyle(document.documentElement).getPropertyValue('--bg').trim(), scale: 1, logging: false});
     const link = document.createElement('a');
     link.href = canvas.toDataURL('image/png');
     link.download = 'trendradar-news.png';
