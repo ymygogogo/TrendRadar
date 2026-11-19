@@ -264,6 +264,8 @@ market_intelligence:
     weekly_events_path: "config/market_events_calendar.yaml"
     calendar_path: "config/cn_trading_calendar.yaml"
     max_events: 8
+    # 有合格素材时，为含海外媒体或官方原始链接的事件留出位置。设为 0 停用。
+    min_international_events: 2
     publisher_groups:
       BBC: ["bbc-world", "bbc-business"]
       财联社: ["cls-telegraph", "cls-hot"]
