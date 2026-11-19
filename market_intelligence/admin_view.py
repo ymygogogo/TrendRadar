@@ -17,6 +17,9 @@ SOURCE_TYPES = {
     "domestic_media": "国内媒体",
     "international_official": "海外官方",
     "international_media": "海外媒体",
+    "international_company": "海外企业原发",
+    "international_social": "海外社交",
+    "international_video": "海外视频",
 }
 DELIVERY_STATES = {"delivered": "成功", "failed": "失败", "pending": "待投递"}
 VERIFICATION_STATES = {"confirmed": "已确认", "corroborated": "多源印证", "unverified": "待核实"}
@@ -256,7 +259,15 @@ def _digest_event(event, number):
         entries = []
         for item in evidence:
             region = "（海外）" if item["international"] else "（国内）" if item.get("domestic") else ""
-            entries.append(_evidence_link(item["url"], escape(item["name"] + region)))
+            name = item["name"]
+            medium = item.get("medium")
+            if medium and medium not in name:
+                name += f" · {medium}"
+            entry = _evidence_link(item["url"], escape(name + region))
+            if entry and (stats := item.get("youtube_views")):
+                stamp = local_time(stats["sampled_at"], full=True)
+                entry += f' <small>YouTube 播放 {stats["views"]:,} 次（{stamp} 采集）</small>'
+            entries.append(entry)
         source = " · ".join(filter(None, entries))
         shown_urls = {item["url"] for item in evidence}
         sources = " ".join(_evidence_link(url, "同事件报道") for url in event.get("other_sources", [])

@@ -119,8 +119,10 @@ def _event_details(row, data, tier, topic, signals, companies, sources):
 
 
 def _linked_sources(db, event_id, publishers, domestic_platforms):
-    rows = db.execute("""SELECT a.feed_id,a.source_name,a.url,h.name,h.category
-        FROM articles a LEFT JOIN feed_health h USING (feed_id) WHERE a.event_id=?
+    rows = db.execute("""SELECT a.feed_id,a.source_name,a.url,h.name,h.category,v.views,v.sampled_at
+        FROM articles a LEFT JOIN feed_health h USING (feed_id)
+        LEFT JOIN article_youtube_views v ON v.article_id=a.id
+        WHERE a.event_id=?
         ORDER BY julianday(coalesce(a.published_at,a.collected_at)) DESC, a.id""", (event_id,))
     sources = {}
     for row in rows:
@@ -128,12 +130,16 @@ def _linked_sources(db, event_id, publishers, domestic_platforms):
         if not url:
             continue
         publisher = publishers.get(row["feed_id"]) or row["name"] or row["source_name"] or urlsplit(url).hostname
-        sources.setdefault(publisher, {
-            "name": publisher, "url": url,
-            "international": row["category"] in ("international_media", "international_official"),
+        category = row["category"] or ""
+        medium = {"international_video": "YouTube", "international_social": "Bluesky"}.get(category, "")
+        evidence = sources.setdefault((publisher, medium), {
+            "name": publisher, "url": url, "medium": medium,
+            "international": category.startswith("international_"),
             "domestic": (row["category"] in ("domestic_media", "domestic_official")
                          or row["feed_id"] in domestic_platforms),
         })
+        if evidence["url"] == url and row["views"] is not None:
+            evidence["youtube_views"] = {"views": row["views"], "sampled_at": row["sampled_at"]}
     return list(sources.values())
 
 
@@ -198,8 +204,8 @@ def _combine_speech_reports(buckets, now, *, rank_bonus=True):
             sources = primary.setdefault("other_sources", [])
             if event["source"] and event["source"] not in (primary["source"], *sources):
                 sources.append(event["source"])
-            evidence = {source["name"]: source for source in event["sources"]}
-            evidence.update({source["name"]: source for source in primary["sources"]})
+            evidence = {(source["name"], source["medium"]): source for source in event["sources"]}
+            evidence.update({(source["name"], source["medium"]): source for source in primary["sources"]})
             primary["sources"] = list(evidence.values())
             outlets = sorted(set(primary["outlets"]) | set(event["outlets"]))
             ranks = [value for value in (primary["hotlist_rank"], event["hotlist_rank"]) if value is not None]

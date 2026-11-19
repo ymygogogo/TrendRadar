@@ -60,7 +60,9 @@ def public_edition(edition):
                 "reported_at", "direction", "impact", "outlet_count", "hotlist_rank", "edition_region",
             ) if key in event},
              "source": external_url(event["source"]),
-             "sources": [{"name": item["name"], "url": url, "international": item["international"], "domestic": item.get("domestic", False)}
+             "sources": [{**{key: item[key] for key in (
+                              "name", "international", "domestic", "medium", "youtube_views") if key in item},
+                          "url": url}
                          for item in event.get("sources", []) if (url := external_url(item["url"]))],
              "other_sources": [url for source in event.get("other_sources", []) if (url := external_url(source))],
              "concepts": event.get("concepts", []),

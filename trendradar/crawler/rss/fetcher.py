@@ -179,6 +179,7 @@ class RSSFetcher:
                     first_time=crawl_time,
                     last_time=crawl_time,
                     count=1,
+                    youtube_views=parsed.youtube_views,
                 )
                 items.append(item)
 

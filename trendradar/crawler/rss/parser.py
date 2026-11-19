@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from email.utils import parsedate_to_datetime
+from urllib.parse import urlsplit
 
 try:
     import feedparser
@@ -30,6 +31,7 @@ class ParsedRSSItem:
     summary: Optional[str] = None
     author: Optional[str] = None
     guid: Optional[str] = None
+    youtube_views: Optional[int] = None
 
 
 class RSSParser:
@@ -68,9 +70,17 @@ class RSSParser:
         if feed.bozo and not feed.entries:
             raise ValueError(f"RSS 解析失败 ({feed_url}): {feed.bozo_exception}")
 
+        source = urlsplit(feed_url)
+        youtube_feed = source.hostname == "www.youtube.com" and source.path == "/feeds/videos.xml"
         items = []
         for entry in feed.entries:
             item = self._parse_entry(entry)
+            if item and youtube_feed:
+                video = urlsplit(item.url)
+                raw = entry.get("media_statistics", {}).get("views", "")
+                if (video.hostname == "www.youtube.com" and video.path == "/watch"
+                        and isinstance(raw, str) and re.fullmatch(r"[0-9]{1,15}", raw)):
+                    item.youtube_views = int(raw)
             if item:
                 items.append(item)
 

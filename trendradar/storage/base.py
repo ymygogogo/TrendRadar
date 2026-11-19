@@ -85,6 +85,7 @@ class RSSItem:
     first_time: str = ""                # 首次抓取时间
     last_time: str = ""                 # 最后抓取时间
     count: int = 1                      # 抓取次数
+    youtube_views: Optional[int] = None # 频道 Atom 返回的原始播放次数，仅供本轮情报入库
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
