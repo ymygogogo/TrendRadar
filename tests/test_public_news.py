@@ -105,3 +105,30 @@ def test_home_exposes_regions_and_latest_brief_with_stable_event_links():
     assert 'data-region="domestic"' in page and 'data-region="international"' in page
     assert "搜索标题或来源" in page and "最新一期" in page and "&lt;国内三条&gt;" in page
     assert f'/digests/{brief["id"]}.html#event-4' in page and "国内 3 条 · 海外 1 条" in page
+
+
+def test_today_news_uses_shanghai_publication_date_and_preserves_previous_rounds(tmp_path):
+    engine = MarketIntelligence({"database_path": str(tmp_path / "market.db")}, {})
+    try:
+        with engine.db:
+            engine.db.executemany("""INSERT INTO articles(id,feed_id,title,url,published_at,collected_at)
+                VALUES (?,'bbc-world',?,'https://example.net/'||?,?,?)""", [
+                ("prior", "旧芯片消息", "prior", "2026-11-18T15:59:00Z", NOW.isoformat()),
+                ("first", "芯片早间消息", "first", "2026-11-18T16:01:00Z", NOW.isoformat()),
+                ("recent", "芯片最新消息", "recent", "2026-11-19T02:55:00Z", NOW.isoformat()),
+                ("future", "芯片未来消息", "future", "2026-11-19T08:00:00Z", NOW.isoformat()),
+                ("unknown", "芯片无时间", "unknown", None, NOW.isoformat()),
+                ("gossip", "Celebrity gossip on AI", "gossip", "2026-11-19T02:40:00Z", NOW.isoformat()),
+            ])
+        [tech] = public_site.today_groups(engine.db, engine.settings, NOW)
+        assert [item["title"] for item in tech["titles"]] == ["芯片最新消息", "芯片早间消息"]
+        assert [item["time_display"] for item in tech["titles"]] == ["10:55", "00:01"]
+        page = public_site.render_home(None, None, NOW, today=[tech],
+                                       regions={"bbc-world": "international"}).decode()
+        assert 'data-show="today" aria-pressed="true">今日新闻 2' in page
+        assert 'data-view="today" class="news-grid"' in page
+        assert 'data-region="international"' in page and "旧芯片消息" not in page
+        empty = public_site.render_home(None, None, NOW, today=[]).decode()
+        assert 'data-show="today" aria-pressed="false">今日新闻 0' in empty
+    finally:
+        engine.close()

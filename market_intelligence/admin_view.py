@@ -147,6 +147,58 @@ button { background:var(--accent); color:var(--accent-ink); border:0; border-rad
 @media (max-width:23rem) {
   .form-grid,.notify-form .form-grid { grid-template-columns:minmax(0,1fr); }
 }
+.console { min-height:100vh; }
+.console-nav {
+  background:var(--header); border-bottom:1px solid var(--edge);
+  padding:.72rem .85rem; position:relative;
+}
+.console-nav .brand { width:max-content; max-width:100%; font-size:1.04rem; }
+.console-nav nav { margin-top:.55rem; gap:.25rem; }
+.console-nav nav a { display:flex; align-items:center; gap:.6rem; font-weight:580; }
+.console-nav .nav-icon { width:1.15rem; text-align:center; color:var(--accent); font-size:.85rem; }
+.console-nav .news-entry { color:var(--accent); }
+.console .console-body { width:min(100% - 1.5rem,88rem); padding-block:1.25rem 3.5rem; }
+.console .console-overview { border-block-end:1px solid var(--edge-soft); padding-bottom:1.4rem; }
+.console #overview-title { font-size:clamp(1.82rem,4vw,3rem); line-height:1.17; }
+.console .heading time { color:#c4e6ef; font-variant-numeric:tabular-nums; }
+.console .workflow { gap:.7rem; }
+.console .workflow .panel {
+  border-top:1px solid var(--edge); border-inline-start:2px solid #47728b;
+  box-shadow:inset 0 1px 0 #8cd5ee0b;
+}
+.console .workflow .panel.attention { border-inline-start-color:var(--warn); }
+.console .workflow-status { font-size:clamp(1.25rem,2.3vw,1.84rem); font-variant-numeric:tabular-nums; }
+.console .workflow-meter { width:100%; height:.55rem; margin-top:.2rem; accent-color:var(--accent); }
+.console .workflow-meter::-webkit-meter-bar { background:var(--bg); border:0; border-radius:.5rem; }
+.console .workflow-meter::-webkit-meter-optimum-value { background:var(--accent); }
+.console .stats dd { letter-spacing:-.035em; font-size:1.8rem; }
+.console h2 { border-inline-start:2px solid var(--accent); padding-inline-start:.55rem; }
+.console form { box-shadow:inset 0 1px 0 #8cd5ee12; }
+.console .model-usage { border-top:1px solid #3f7189; }
+@media (min-width:62rem) {
+  .console { display:grid; grid-template-columns:13rem minmax(0,1fr); align-items:start; }
+  .console-nav {
+    position:sticky; top:0; min-height:100dvh; border:0; border-inline-end:1px solid var(--edge);
+    padding:1.25rem 1rem;
+  }
+  .console-nav nav { display:grid; margin-top:1.65rem; gap:.32rem; }
+  .console-nav nav a { padding:.65rem .72rem; }
+  .console-nav nav a.news-entry { margin-top:.45rem; border-top:1px solid var(--edge-soft); border-radius:0; }
+  .console-nav nav a:hover { box-shadow:inset 2px 0 var(--accent); }
+  .console .console-body { width:100%; margin-inline:auto; padding:1.8rem clamp(1.35rem,3.2vw,3.25rem) 3.5rem; }
+  .console .console-overview { margin-bottom:1.7rem; }
+  .console:has(#channels:target) .console-nav a[href="#channels"],
+  .console:has(#push-settings:target) .console-nav a[href="#push-settings"],
+  .console:has(#model:target) .console-nav a[href="#model"],
+  .console:has(#settings:target) .console-nav a[href="#settings"],
+  .console:has(#overview:target) .console-nav a[href="#overview"] { color:var(--accent); background:var(--accent-quiet); }
+}
+@media (max-width:39rem) {
+  .console-nav nav { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .console-nav nav a { padding:.32rem .22rem; font-size:.83rem; gap:.28rem; }
+  .console-nav .nav-icon { width:.88rem; }
+  .console .workflow .panel { padding:.72rem .82rem; }
+}
 """
 
 
@@ -173,6 +225,9 @@ def render_workflow(snapshot, settings):
     daily = settings["max_articles_per_day"]
     per_round = settings["max_articles_per_run"]
     budget = f"今日 {today:,} / {daily:,} 次 · 每轮最多 {per_round:,} 次" if today is not None else f"每轮最多 {per_round:,} 次"
+    quota = (f'<meter class="workflow-meter" min="0" max="{daily}" value="{min(today, daily)}" '
+             f'aria-label="今日分析额度已用 {today} 次，共 {daily} 次"></meter>'
+             if today is not None and daily > 0 else "")
     queued = ""
     if pending and queue.get("oldest_at"):
         queued = (f'<p class="muted">近 1 小时采集且待分析 {queue["last_hour"]:,} 篇 · '
@@ -188,7 +243,7 @@ def render_workflow(snapshot, settings):
 <p class="workflow-status{' warn' if failed else ''}">{collection}</p>
 <p class="muted">共 {len(sources)} 个来源{f' · {waiting} 个等待首轮' if waiting else ''}</p></div>
 <div class="panel"><h3>分析 <a href="#model">用量</a></h3><p class="workflow-status" aria-label="待分析 {pending} 篇">{pending:,} 篇待分析</p>
-<p class="muted">{budget}</p>{queued}</div>
+<p class="muted">{budget}</p>{quota}{queued}</div>
 <div class="panel{' attention' if issue else ''}"><h3>推送 <a href="#delivery">投递</a></h3>
 <p class="workflow-status{' warn' if issue else ''}">{len(active)} 个启用 · {issue} 个需关注</p>
 <p class="muted">{pending_delivery:,} 条待投递 · {latest}</p></div>
@@ -394,15 +449,19 @@ def render_dashboard(settings, fields, token, message, snapshot, *, news_url="",
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TrendRadar 管理</title><style>{STYLE}</style>
 </head>
-<body>
-<header class="top"><div class="bar">
-<a class="brand" href="/admin/">TrendRadar <small>管理</small></a>
-<nav aria-label="页面导航">
-<a href="#overview">总览</a><a href="#channels">渠道</a><a href="#push-settings">推送设置</a><a href="#model">模型与用量</a><a href="#settings">运行设置</a>
-<a href="{escape(news_url or "/news/")}">新闻报告</a>
-</nav></div></header>
-<main>
-<section id="overview" aria-labelledby="overview-title">
+<body class="console">
+<header class="console-nav">
+<a class="brand" href="/admin/"><span class="brand-mark" aria-hidden="true"></span>TrendRadar <small>管理</small></a>
+<nav aria-label="管理导航">
+<a href="#overview"><span class="nav-icon" aria-hidden="true">◈</span>总览</a>
+<a href="#channels"><span class="nav-icon" aria-hidden="true">▤</span>渠道</a>
+<a href="#push-settings"><span class="nav-icon" aria-hidden="true">↗</span>推送设置</a>
+<a href="#model"><span class="nav-icon" aria-hidden="true">⌁</span>模型与用量</a>
+<a href="#settings"><span class="nav-icon" aria-hidden="true">⚙</span>运行设置</a>
+<a class="news-entry" href="{escape(news_url or "/news/")}"><span class="nav-icon" aria-hidden="true">↗</span>新闻报告</a>
+</nav></header>
+<main class="console-body">
+<section id="overview" class="console-overview" aria-labelledby="overview-title">
 <div class="heading"><h1 id="overview-title">当前汇总</h1><p>{updated}</p></div>
 {render_overview(snapshot, settings)}
 </section>
@@ -497,9 +556,9 @@ def _digest_event(event, number):
 def render_digest(edition, *, public=False):
     from .digests import DIRECTIONS_ZH, REGION_LABELS, region_summary
 
-    navigation = ('<a class="brand" href="/">TrendRadar <small>简报</small></a>'
+    navigation = ('<a class="brand" href="/"><span class="brand-mark" aria-hidden="true"></span>TrendRadar <small>简报</small></a>'
                   '<nav aria-label="简报导航"><a href="/">新闻首页</a><a href="/digests/index.html">简报历史</a></nav>'
-                  if public else '<a class="brand" href="/admin/">TrendRadar <small>返回管理</small></a>')
+                  if public else '<a class="brand" href="/admin/"><span class="brand-mark" aria-hidden="true"></span>TrendRadar <small>返回管理</small></a>')
     entries = "".join(_digest_event(event, number) for number, event in enumerate(edition["events"], 1))
     actual = len(edition["events"])
     overview = ""
@@ -543,7 +602,7 @@ def render_digest(edition, *, public=False):
 <title>{escape(edition['title'])} · TrendRadar</title><style>{STYLE}
 .brief {{ max-width:61rem; }}
 .brief-event {{ margin-block:1rem; overflow-wrap:anywhere; }}
-.brief-index {{ margin-block:1rem; }}
+.brief-index {{ margin-block:1rem; border-inline-start:2px solid var(--accent); }}
 .brief-index ol {{ margin:.35rem 0 0; padding-inline-start:1.4rem; }}
 .brief-index li {{ padding:.32rem 0; overflow-wrap:anywhere; }}
 .brief-index small {{ display:block; }}

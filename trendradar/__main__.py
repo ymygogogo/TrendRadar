@@ -1651,9 +1651,11 @@ class NewsAnalyzer:
                     hotlist = public_site.hotlist_groups(results, names, extension.settings)
                     regions = {source: category.split("_", 1)[0] for source, category in categories.items()}
                     regions.update(dict.fromkeys(extension.settings.get("domestic_platforms", ()), "domestic"))
-                    public_site.publish_home(rss_items, rss_new_items, extension.now(), self.report_mode,
+                    now = extension.now()
+                    public_site.publish_home(rss_items, rss_new_items, now, self.report_mode,
                                              hotlist=hotlist, regions=regions,
-                                             brief=public_site.latest_published_edition(extension.db))
+                                             brief=public_site.latest_published_edition(extension.db),
+                                             today=public_site.today_groups(extension.db, settings, now))
                 except Exception as error:
                     print(f"[市场情报] 公网新闻发布失败: {type(error).__name__}")
             extension.analyze_pending()
