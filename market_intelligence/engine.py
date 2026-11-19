@@ -532,15 +532,17 @@ class MarketIntelligence:
 
     def dispatch_urgent(self):
         policy, channels = self._policy()
-        if not channels:
+        if not channels or not policy.get("urgent_enabled", True):
             return
         cap = int(policy.get("max_per_hour", 3))
         cooldown = timedelta(minutes=int(policy.get("cooldown_minutes", 60)))
         cutoff = (self.now() - timedelta(hours=1)).isoformat()
         fresh = (self.now() - timedelta(hours=int(policy.get("urgent_max_age_hours", 6)))).isoformat()
-        sent = self.db.execute("SELECT count(*) FROM deliveries WHERE state='delivered' AND updated_at>=?", (cutoff,)).fetchone()[0]
+        sent = self.db.execute("""SELECT count(*) FROM deliveries d JOIN events e ON e.id=d.event_id
+            WHERE d.state='delivered' AND d.updated_at>=?""", (cutoff,)).fetchone()[0]
+        threshold = self.settings.get("event_analysis", {}).get("urgent_priority_score", 85)
         events = self.db.execute("""SELECT * FROM events WHERE priority='P0' AND verification_status='confirmed'
-            AND updated_at>=? ORDER BY score DESC, updated_at DESC""", (fresh,))
+            AND score>=? AND updated_at>=? ORDER BY score DESC, updated_at DESC""", (threshold, fresh))
         for event in events.fetchall():
             last_delivery = self.db.execute("SELECT max(updated_at) FROM deliveries WHERE event_id=? AND state='delivered' AND revision!=?", (event["id"], event["revision"])).fetchone()[0]
             if last_delivery and self.now() - datetime.fromisoformat(last_delivery) < cooldown:
@@ -558,7 +560,7 @@ class MarketIntelligence:
 
         cfg = self.settings.get("market_open", {})
         _, channels = self._policy()
-        if not cfg.get("enabled") or not channels:
+        if not cfg.get("notification_enabled", cfg.get("enabled")) or not channels:
             return
         now = self.now()
         calendar = self.settings.get("digest", {}).get("calendar_path", "config/cn_trading_calendar.yaml")
@@ -654,13 +656,17 @@ class MarketIntelligence:
             lines.append(f"- {row['name']}收盘 {row['close_point']}，成交额 {row['traded_amount']} 亿元{movement}")
         return lines
 
-    def dispatch_digest(self, trading_slot=None):
+    def dispatch_digest(self, trading_slot=None, *, daily_slot=None):
         _, channels = self._policy()
         if not channels:
             return
         now = self.now()
         config = self.settings.get("digest", {})
         times = config.get("times", ["21:30"])
+        if daily_slot is not None:
+            if daily_slot not in times or trading_slot is not None:
+                raise ValueError("Unknown daily digest slot")
+            times = [daily_slot]
         if trading_slot is not None:
             from .trading_calendar import trading_day, trading_slots
 

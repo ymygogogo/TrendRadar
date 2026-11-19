@@ -16,7 +16,7 @@ import ssl
 import threading
 from urllib.parse import parse_qs, urlsplit
 
-from . import digests, model_settings, operator_settings, status
+from . import digests, model_settings, notification_settings, operator_settings, status
 from .admin_view import render_dashboard, render_digest
 
 
@@ -70,17 +70,20 @@ def visible_values(settings):
     }
 
 
-def render(settings, token, message="", snapshot=None, *, news_url="", model=None, model_message=""):
+def render(settings, token, message="", snapshot=None, *, news_url="", model=None, model_message="",
+           notification=None, notification_message=""):
     return render_dashboard(settings, FIELDS, token, message, snapshot, news_url=news_url,
-                            model=model, model_message=model_message)
+                            model=model, model_message=model_message, notification=notification,
+                            notification_message=notification_message)
 
 
 class AdminServer(ThreadingHTTPServer):
     daemon_threads = True
 
     def __init__(self, address, base, settings_path, password_path, origin, status_path=None, report_dir=None, *,
-                 news_url="", trusted_networks=()):
+                 news_url="", trusted_networks=(), notification_defaults=None):
         self.base = base
+        self.notification_defaults = notification_defaults or notification_settings.visible(base)
         self.settings_path = settings_path
         self.password_path = password_path
         self.origin = origin
@@ -94,6 +97,9 @@ class AdminServer(ThreadingHTTPServer):
 
     def settings(self):
         return {**visible_values(self.base), **operator_settings.read(self.settings_path, self.base)}
+
+    def notification(self):
+        return notification_settings.selected(self.notification_defaults, self.settings_path)
 
     def model(self, snapshot):
         active = (snapshot or {}).get("model", {})
@@ -206,8 +212,13 @@ class AdminRequest(RedirectResponse, BaseHTTPRequestHandler):
                 else:
                     self.reply(200, status.metrics(snapshot), content_type="text/plain; version=0.0.4; charset=utf-8")
             else:
-                self.reply(200, render(self.server.settings(), self.server.token, snapshot=snapshot,
-                                       news_url=self.server.news_url, model=self.server.model(snapshot)))
+                self.dashboard(snapshot)
+
+    def dashboard(self, snapshot, code=200, *, message="", model_message="", notification_message=""):
+        self.reply(code, render(self.server.settings(), self.server.token, message, snapshot,
+                                news_url=self.server.news_url, model=self.server.model(snapshot),
+                                notification=self.server.notification(), model_message=model_message,
+                                notification_message=notification_message))
 
     def form(self, max_fields):
         size = int(self.headers.get("Content-Length", "0"))
@@ -220,7 +231,7 @@ class AdminRequest(RedirectResponse, BaseHTTPRequestHandler):
         return values
 
     def do_POST(self):
-        if self.path not in ("/admin/", "/admin/model"):
+        if self.path not in ("/admin/", "/admin/model", "/admin/notifications"):
             self.reply(404)
             return
         if not self.authorized():
@@ -232,6 +243,9 @@ class AdminRequest(RedirectResponse, BaseHTTPRequestHandler):
         if self.path == "/admin/model":
             self.save_model(snapshot)
             return
+        if self.path == "/admin/notifications":
+            self.save_notifications(snapshot)
+            return
         try:
             form = self.form(8)
             if form is None:
@@ -241,13 +255,9 @@ class AdminRequest(RedirectResponse, BaseHTTPRequestHandler):
             with self.server.save_lock:
                 operator_settings.write(self.server.settings_path, values, self.server.base)
         except (ValueError, KeyError):
-            self.reply(400, render(self.server.settings(), self.server.token,
-                                   "设置无效，请检查数值范围和阈值顺序。", snapshot,
-                                   news_url=self.server.news_url, model=self.server.model(snapshot)))
+            self.dashboard(snapshot, 400, message="设置无效，请检查数值范围和阈值顺序。")
         else:
-            self.reply(200, render(self.server.settings(), self.server.token,
-                                   "已保存，下轮任务生效。", snapshot,
-                                   news_url=self.server.news_url, model=self.server.model(snapshot)))
+            self.dashboard(snapshot, message="已保存，下轮任务生效。")
 
     def save_model(self, snapshot):
         result, message = 200, "模型设置已保存，下轮采集生效。"
@@ -264,9 +274,24 @@ class AdminRequest(RedirectResponse, BaseHTTPRequestHandler):
                 model_settings.write(self.server.settings_path, values, model["deployed_model"])
         except (ValueError, KeyError, OSError):
             result, message = 400, "无法保存。请检查模型服务商、Token 上限和超时范围。"
-        self.reply(result, render(self.server.settings(), self.server.token, snapshot=snapshot,
-                                 news_url=self.server.news_url, model=self.server.model(snapshot),
-                                 model_message=message))
+        self.dashboard(snapshot, result, model_message=message)
+
+    def save_notifications(self, snapshot):
+        try:
+            form = self.form(9)
+            if form is None:
+                return
+            values = notification_settings.from_form(form)
+            with self.server.save_lock:
+                notification_settings.write(self.server.settings_path, values)
+        except notification_settings.ValidationError as error:
+            self.dashboard(snapshot, 400, notification_message=str(error))
+        except (ValueError, KeyError):
+            self.dashboard(snapshot, 400, notification_message="请检查推送时间和数值范围。")
+        except OSError:
+            self.dashboard(snapshot, 500, notification_message="写入失败，请检查管理配置目录。")
+        else:
+            self.dashboard(snapshot, notification_message="设置已保存，下一轮调度读取。")
 
 
 def main():
@@ -281,13 +306,15 @@ def main():
         return
     from trendradar.core import load_config
 
-    base = load_config()["MARKET_INTELLIGENCE"]
+    config = load_config()
+    base = config["MARKET_INTELLIGENCE"]
     status_path = os.environ.get("MARKET_STATUS_PATH")
     trusted_networks = os.environ.get("MARKET_ADMIN_TRUSTED_NETWORKS")
     server = AdminServer(("0.0.0.0", 8443), base, state / "settings.json", password_path,
                          "https://tr.yumy.space", status_path, os.environ.get("MARKET_REPORT_DIR"),
                          news_url=os.environ.get("MARKET_ADMIN_NEWS_URL", ""),
-                         trusted_networks=trusted_networks.split(",") if trusted_networks else ())
+                         trusted_networks=trusted_networks.split(",") if trusted_networks else (),
+                         notification_defaults=config.get("MARKET_NOTIFICATION_DEFAULTS"))
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.load_cert_chain(private / "fullchain.pem", private / "privkey.pem")

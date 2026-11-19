@@ -2,6 +2,7 @@
 
 import argparse
 from contextlib import redirect_stdout
+import io
 import json
 import os
 from pathlib import Path
@@ -61,7 +62,8 @@ def health(database):
 
 def trading_command(command, slot):
     # Loader progress belongs in container logs, never in the generated crontab.
-    with redirect_stdout(sys.stderr):
+    output = io.StringIO() if command == "schedule-tick" else sys.stderr
+    with redirect_stdout(output):
         from trendradar.core import load_config
 
         config = load_config()
@@ -69,15 +71,39 @@ def trading_command(command, slot):
     if command == "digest-cron":
         from .trading_calendar import cron_entries
 
-        for entry in cron_entries(settings):
+        for entry in cron_entries(settings, live_schedule=config.get("MARKET_LIVE_SCHEDULE", False)):
             print(entry)
     elif settings.get("enabled"):
         from .engine import MarketIntelligence
         from .status import publish_current
 
+        jobs = ()
+        if command == "schedule-tick":
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+            from .trading_calendar import due_jobs
+
+            now = datetime.now(ZoneInfo(settings.get("timezone", "Asia/Shanghai")))
+            jobs = tuple(due_jobs(settings, now))
+            if not jobs:
+                return 0
+
         engine = MarketIntelligence(settings, config)
         try:
-            if command == "publish-public-history":
+            if command == "schedule-tick":
+                for kind, due in jobs:
+                    if kind == "weekly":
+                        engine.dispatch_weekly_calendar()
+                    elif kind == "opening":
+                        engine.dispatch_market_open()
+                    else:
+                        if due in settings.get("market_close", {}).get("display_slots", []):
+                            engine.collect_market_close()
+                        if kind == "trading":
+                            engine.dispatch_digest(trading_slot=due)
+                        else:
+                            engine.dispatch_digest(daily_slot=due)
+            elif command == "publish-public-history":
                 from .public_site import backfill_delivered
 
                 print(f"Published {backfill_delivered(engine)} existing delivered digests")
@@ -139,7 +165,7 @@ def brief_now(send, publish_preview):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["check-sources", "health", "digest-cron", "trading-digest", "weekly-calendar", "market-close", "brief-now", "publish-public-history", "market-open"])
+    parser.add_argument("command", choices=["check-sources", "health", "digest-cron", "schedule-tick", "trading-digest", "weekly-calendar", "market-close", "brief-now", "publish-public-history", "market-open"])
     parser.add_argument("--database", default="output/market_intelligence.db")
     parser.add_argument("--slot", help="Configured trading digest time in HH:MM")
     delivery = parser.add_mutually_exclusive_group()
@@ -152,7 +178,7 @@ def main():
         parser.error("--send and --publish-preview require brief-now")
     if args.command == "trading-digest" and args.slot is None:
         parser.error("trading-digest requires --slot")
-    if args.command in {"digest-cron", "trading-digest", "weekly-calendar", "market-close", "publish-public-history", "market-open"}:
+    if args.command in {"digest-cron", "schedule-tick", "trading-digest", "weekly-calendar", "market-close", "publish-public-history", "market-open"}:
         return trading_command(args.command, args.slot)
     return check_sources() if args.command == "check-sources" else health(args.database)
 

@@ -4,6 +4,7 @@ from html import escape
 from zoneinfo import ZoneInfo
 
 from .model_settings import FIELDS as MODEL_FIELDS
+from .notification_settings import LIST_FIELDS, NUMBER_FIELDS, TIME_FIELDS
 
 
 CHANNEL_NAMES = {
@@ -107,6 +108,14 @@ textarea { resize:vertical; }
 button { background:var(--accent); color:#0e2530; border:0; border-radius:.4rem;
          font:inherit; font-weight:700; padding:.55rem 1rem; margin-block-start:.85rem; cursor:pointer; }
 .message { margin-block-end:.65rem; color:var(--accent); }
+.notify-form fieldset { border:0; padding:0; margin:0 0 .9rem; min-width:0; }
+.notify-form legend { padding:0; margin-bottom:.45rem; font-weight:700; }
+.notify-form .form-grid { margin:.55rem 0; }
+.notify-form .switch { display:flex; align-items:center; gap:.55rem; margin-bottom:.65rem; }
+.notify-form input[type=checkbox] { width:1rem; height:1rem; margin:0; }
+.notify-form input[type=time] { min-width:0; }
+.notify-form fieldset + fieldset { border-top:1px solid var(--edge); padding-top:.65rem; }
+
 @media (max-width:62rem) { .channels { grid-template-columns:minmax(0,1fr); } }
 @media (max-width:39rem) {
   .stats,.form-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
@@ -201,11 +210,13 @@ def render_sources(snapshot):
         name, category, last_attempt, last_success, latest = details.get(feed, (feed, "", None, None, None))
         source_type = SOURCE_TYPES.get(category, category)
         state = f"连续失败 {failures} 次" if failures else "正常" if attempts else "等待采集"
+        error = snapshot.get("source_errors", {}).get(feed)
+        problem = f'<span class="cell-detail">{escape(error)}</span>' if failures and error else ""
         elapsed = f"{duration:,} ms" if duration is not None else "—"
         sample = f"成功 {successes}/{attempts} 次" if attempts else "无采集记录"
         target = attention if failures or not attempts else healthy
         target.append(f'<tr><th scope="row">{escape(name)}<span class="cell-detail">{escape(source_type)}</span></th>'
-                    f'<td><span class="tag {"warn" if failures else "good" if attempts else ""}">{state}</span>'
+                    f'<td><span class="tag {"warn" if failures else "good" if attempts else ""}">{state}</span>{problem}'
                     f'<span class="cell-detail">{sample} · {elapsed}</span>'
                     f'<span class="cell-detail">最近抓取 {local_time(last_attempt)}</span></td>'
                     f'<td><span class="cell-detail">成功 {local_time(last_success)}</span>'
@@ -318,7 +329,34 @@ def render_model(model, usage, token, message):
 <tbody>{table}</tbody></table></div></details></div>"""
 
 
-def render_dashboard(settings, fields, token, message, snapshot, *, news_url="", model=None, model_message=""):
+def render_notification_settings(values, threshold, token, message):
+    if values is None:
+        return ""
+    note = f'<p class="message" role="status">{escape(message)}</p>' if message else ""
+    slots = "".join(f'<label>{label}<input type="text" name="{key}" maxlength="56" '
+                    f'value="{escape(", ".join(values[key]))}"></label>' for key, label in LIST_FIELDS)
+    single = "".join(f'<label>{label}<input type="time" name="{key}" value="{escape(values[key])}"></label>'
+                     for key, label in TIME_FIELDS)
+    limits = "".join(
+        f'<label>{label}<input type="number" name="{key}" min="{minimum}" max="{maximum}" '
+        f'required value="{int(values[key])}"></label>' for key, label, minimum, maximum in NUMBER_FIELDS)
+    checked = " checked" if values["urgent_enabled"] else ""
+    return f"""<section id="push-settings" aria-labelledby="push-settings-title">
+<div class="heading"><h2 id="push-settings-title">推送设置</h2><a href="#delivery">查看投递渠道</a></div>
+<form class="panel notify-form" action="/admin/notifications#push-settings" method="post">
+{note}<input name="token" type="hidden" value="{escape(token)}">
+<fieldset><legend>定时任务 · 北京时间</legend>
+<p class="muted">多个简报时间用逗号隔开，留空关闭对应任务。</p>
+<div class="form-grid">{slots}{single}</div></fieldset>
+<fieldset><legend>即时预警</legend>
+<label class="switch"><input type="checkbox" name="urgent_enabled" value="1"{checked}>启用 P0 即时预警</label>
+<p class="muted">采集分析结束后检查已确认的事件。当前最低 {int(threshold)} 分 · <a href="#settings">调整评分阈值</a></p>
+<div class="form-grid">{limits}</div></fieldset>
+<button>保存推送设置</button></form></section>"""
+
+
+def render_dashboard(settings, fields, token, message, snapshot, *, news_url="", model=None, model_message="",
+                     notification=None, notification_message=""):
     data = snapshot or {}
     numbers = "".join(
         f'<label>{label}<input name="{key}" type="number" required value="{int(settings[key])}"></label>'
@@ -337,7 +375,7 @@ def render_dashboard(settings, fields, token, message, snapshot, *, news_url="",
 <header class="top"><div class="bar">
 <span class="brand">TrendRadar 管理</span>
 <nav aria-label="页面导航">
-<a href="#overview">总览</a><a href="#channels">渠道</a><a href="#model">模型与用量</a><a href="#settings">设置</a>
+<a href="#overview">总览</a><a href="#channels">渠道</a><a href="#push-settings">推送设置</a><a href="#model">模型与用量</a><a href="#settings">运行设置</a>
 <a href="{escape(news_url or "/news/")}">新闻报告</a>
 </nav></div></header>
 <main>
@@ -351,6 +389,7 @@ def render_dashboard(settings, fields, token, message, snapshot, *, news_url="",
 <section class="panel" aria-labelledby="source-title"><h3 id="source-title">RSS 采集渠道</h3>{render_sources(data)}</section>
 <section class="panel" id="delivery" aria-labelledby="delivery-title"><h3 id="delivery-title">推送渠道</h3>{render_notifications(data)}</section>
 </div></section>
+{render_notification_settings(notification, settings["urgent_priority_score"], token, notification_message)}
 <section id="model" aria-labelledby="model-title">
 <div class="heading"><h2 id="model-title">模型与用量</h2></div>
 {render_model(model or {}, data.get("model_usage", []), token, model_message)}
