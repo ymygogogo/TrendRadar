@@ -237,3 +237,46 @@ def test_digest_reserves_international_events_and_shows_original_sources(tmp_pat
         assert len(unreserved) == 8 and all(event["tier"] == "main" for event in unreserved)
     finally:
         engine.close()
+
+
+def test_balanced_digest_uses_same_heat_and_counts_mixed_event_once(tmp_path):
+    from market_intelligence.admin_view import render_digest
+    from market_intelligence.public_site import public_edition
+
+    config = {"database_path": str(tmp_path / "market.db"), "domestic_platforms": ["feed"],
+              "digest": {"balance_regions": True}}
+    engine = MarketIntelligence(config, {}, now=lambda: NOW)
+    try:
+        for i in range(6):
+            title = ("全球外交峰会", "半导体设备进展", "能源供需变化")[i % 3]
+            add_event(engine.db, f"domestic-{i}", 80, 0.5, title=title)
+        # Only three foreign-only events, plus one jointly reported event.
+        for name in ("overseas-1", "overseas-2", "overseas-3", "mixed"):
+            add_event(engine.db, name, 76, 2)
+        with engine.db:
+            engine.db.execute("INSERT INTO feed_health(feed_id,name,category,url,last_attempt) VALUES (?,?,?,?,?)",
+                              ("bbc", "BBC", "international_media", "https://www.bbc.com", NOW.isoformat()))
+            engine.db.execute("DELETE FROM articles WHERE event_id LIKE 'overseas-%'")
+            for name in ("overseas-1", "overseas-2", "overseas-3", "mixed"):
+                stamp = engine.db.execute("SELECT updated_at FROM events WHERE id=?", (name,)).fetchone()[0]
+                engine.db.execute("""INSERT INTO articles(id,feed_id,title,url,collected_at,event_id)
+                    VALUES (?,?,?,?,?,?)""", (name, "bbc", name, f"https://www.bbc.com/{name}", stamp, name))
+            engine.db.execute("INSERT INTO article_hotlist VALUES (?,?,?,?)",
+                              ("domestic-0-1", "feed", 1, NOW.isoformat()))
+        edition = digests.make_edition(engine, KEY, NOW, NOW - timedelta(hours=1), "热点新闻简报")
+        events = {event["event_id"]: event for event in edition["events"]}
+        assert len(events) == 8 and digests.region_summary(events.values()) == "国内 4 条 · 海外 4 条"
+        assert {event["topic"] for event in events.values()} == {"tech", "economy", "world"}
+        assert events["mixed"]["edition_region"] == "international"
+        assert events["mixed"]["tier"] == "watch"
+        assert events["domestic-0"]["hotlist_rank"] == 1
+        assert events["domestic-0"]["heat"] == events["domestic-1"]["heat"]
+        page = render_digest(public_edition(edition), public=True).decode()
+        assert "国内 4 条 · 海外 4 条" in page and "BBC（海外）" in page and "news.example（国内）" in page
+        assert "国内 4 条 · 海外 4 条" in digests.digest_message(edition)
+        with engine.db:
+            engine.db.execute("DELETE FROM articles WHERE event_id='overseas-3'")
+        fallback = digests.select_events(engine.db, config, [], NOW, NOW - timedelta(hours=1))
+        assert len(fallback) == 8 and digests.region_summary(fallback) == "国内 5 条 · 海外 3 条"
+    finally:
+        engine.close()
