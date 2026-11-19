@@ -280,3 +280,56 @@ def test_balanced_digest_uses_same_heat_and_counts_mixed_event_once(tmp_path):
         assert len(fallback) == 8 and digests.region_summary(fallback) == "国内 5 条 · 海外 3 条"
     finally:
         engine.close()
+
+
+def test_youtube_public_views_are_preserved_without_inflating_heat(tmp_path):
+    from types import SimpleNamespace
+
+    from market_intelligence.admin_view import render_digest
+    from market_intelligence.public_site import public_edition
+    from trendradar.crawler.rss.parser import RSSParser
+    from trendradar.storage.base import RSSItem
+
+    atom = """<feed xmlns="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/">
+      <title>NVIDIA</title><entry><id>demo-id</id><title>AI chip launch</title>
+      <link href="https://www.youtube.com/watch?v=demo"/>
+      <published>2026-11-18T12:30:00Z</published>
+      <media:group><media:statistics views="1234"/></media:group>
+      </entry></feed>"""
+    feed_url = "https://www.youtube.com/feeds/videos.xml?channel_id=example"
+    [video] = RSSParser().parse(atom, feed_url)
+    assert video.youtube_views == 1234
+    assert RSSParser().parse(atom, "https://other.example/feed")[0].youtube_views is None
+    assert RSSParser().parse(atom.replace('views="1234"', 'views="-1"'), feed_url)[0].youtube_views is None
+
+    config = {"database_path": str(tmp_path / "market.db"), "digest": {
+        "balance_regions": True, "publisher_groups": {"NVIDIA": ["nvidia-blog", "nvidia-youtube"]},
+    }}
+    now = [NOW]
+    engine = MarketIntelligence(config, {}, now=lambda: now[0])
+    try:
+        add_event(engine.db, "chips", 77, 1, title="芯片发布")
+        item = RSSItem(video.title, "nvidia-youtube", url=video.url, published_at=video.published_at,
+                       youtube_views=video.youtube_views)
+        rss = SimpleNamespace(items={"nvidia-youtube": [item]})
+        engine.ingest(rss)
+        now[0] += timedelta(minutes=30)
+        item.youtube_views = 2000
+        engine.ingest(rss)
+        with engine.db:
+            for feed_id, category in (("nvidia-youtube", "international_video"),
+                                      ("nvidia-blog", "international_company")):
+                engine.db.execute("INSERT INTO feed_health(feed_id,name,category,url,last_attempt) VALUES (?,?,?,?,?)",
+                                  (feed_id, feed_id, category, "https://example.com", NOW.isoformat()))
+            engine.db.execute("UPDATE articles SET event_id='chips' WHERE feed_id='nvidia-youtube'")
+            engine.db.execute("UPDATE articles SET feed_id='nvidia-blog' WHERE feed_id='feed'")
+        edition = digests.make_edition(engine, KEY, now[0], now[0] - timedelta(hours=3), "简报")
+        [event] = edition["events"]
+        assert event["outlet_count"] == 1 and event["edition_region"] == "international"
+        assert len(event["sources"]) == 2
+        video_source = next(item for item in event["sources"] if item["medium"] == "YouTube")
+        assert video_source["youtube_views"] == {"views": 2000, "sampled_at": now[0].isoformat()}
+        html = render_digest(public_edition(edition), public=True).decode()
+        assert "NVIDIA · YouTube（海外）" in html and "YouTube 播放 2,000 次" in html
+    finally:
+        engine.close()

@@ -24,17 +24,19 @@ def check_sources():
     fetcher = RSSFetcher.from_config({"feeds": feeds, "timeout": 12, "request_interval": 200})
     start = time.monotonic()
     result = fetcher.fetch_all()
-    counts = {"domestic": 0, "international": 0}
+    groups = config.get("market_intelligence", {}).get("digest", {}).get("publisher_groups", {})
+    publishers = {feed: name for name, feeds in groups.items() for feed in feeds}
+    verified = {"domestic": set(), "international": set()}
     for source in feeds:
         items = result.items.get(source["id"], [])
         info = fetcher.health[source["id"]]
         if items and info["success"]:
-            counts[source["category"].split("_", 1)[0]] += 1
-            if source["id"] == "bbc-business" and "bbc-world" in result.items and result.items["bbc-world"]:
-                counts["international"] -= 1
+            region = source["category"].split("_", 1)[0]
+            verified[region].add(publishers.get(source["id"], source["id"]))
         print(json.dumps({"id": source["id"], "count": len(items),
                           "success": info["success"], "duration_ms": info["duration_ms"],
                           "latest_published_at": info["latest_published_at"]}, ensure_ascii=False))
+    counts = {region: len(names) for region, names in verified.items()}
     print(json.dumps({"distinct_publishers": counts, "elapsed_seconds": round(time.monotonic() - start, 1)}))
     return 0 if min(counts.values()) >= 5 else 1
 

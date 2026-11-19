@@ -216,6 +216,53 @@ rss:
       category: "international_official"
       url: "https://www.sec.gov/news/pressreleases.rss"
 
+    # 公开订阅，无平台 API Key。海外请求复用现有海外代理。
+    - id: "reuters-bluesky"
+      name: "Reuters · Bluesky"
+      category: "international_social"
+      url: "https://bsky.app/profile/reuters.com/rss"
+      max_items: 12
+    - id: "ap-bluesky"
+      name: "Associated Press · Bluesky"
+      category: "international_social"
+      url: "https://bsky.app/profile/apnews.com/rss"
+      max_items: 12
+    - id: "openai-news"
+      name: "OpenAI News"
+      category: "international_company"
+      url: "https://openai.com/news/rss.xml"
+      max_items: 12
+    - id: "google-ai-news"
+      name: "Google AI Blog"
+      category: "international_company"
+      url: "https://blog.google/innovation-and-ai/technology/ai/rss/"
+      max_items: 12
+    - id: "nvidia-blog"
+      name: "NVIDIA Blog"
+      category: "international_company"
+      url: "https://blogs.nvidia.com/feed/"
+      max_items: 12
+    - id: "nvidia-youtube"
+      name: "NVIDIA · YouTube"
+      category: "international_video"
+      url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCHuiy8bXnmK5nisYHUd1J5g"
+      max_items: 10
+    - id: "fed-youtube"
+      name: "Federal Reserve · YouTube"
+      category: "international_video"
+      url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCAzhpt9DmG6PnHXjmJTvRGQ"
+      max_items: 10
+    - id: "ecb-youtube"
+      name: "European Central Bank · YouTube"
+      category: "international_video"
+      url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCXB8fM4VyQubRu3UVGhd3wA"
+      max_items: 10
+    - id: "cnbc-youtube"
+      name: "CNBC · YouTube"
+      category: "international_video"
+      url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCvJJ_dzjViJCoLf5uKUTwoA"
+      max_items: 10
+
     - id: "hacker-news"
       name: "Hacker News"
       url: "https://hnrss.org/frontpage"
@@ -255,7 +302,14 @@ market_intelligence:
   domestic_platforms: ["cls-hot", "wallstreetcn-hot", "thepaper", "eastmoney", "cls-telegraph"]
   crawl_filter:
     enabled: false
-    rss_categories: ["domestic_official", "domestic_media", "international_official", "international_media"]
+    rss_categories:
+      - domestic_official
+      - domestic_media
+      - international_official
+      - international_media
+      - international_company
+      - international_social
+      - international_video
     ignore_title_terms: ["圈粉", "饭圈", "粉丝应援", "明星红毯", "综艺花絮", "明星穿搭", "celebrity gossip", "red carpet look"]
   digest:
     times: ["21:30"]
@@ -268,6 +322,8 @@ market_intelligence:
     balance_regions: true
     publisher_groups:
       BBC: ["bbc-world", "bbc-business"]
+      NVIDIA: ["nvidia-blog", "nvidia-youtube"]
+      Federal Reserve: ["federal-reserve", "fed-youtube"]
       财联社: ["cls-telegraph", "cls-hot"]
       华尔街见闻: ["wallstreetcn", "wallstreetcn-hot"]
   max_article_age_days: 2

@@ -163,6 +163,9 @@ class MarketIntelligence:
             article_id TEXT NOT NULL, feed_id TEXT NOT NULL, rank INTEGER NOT NULL, seen_at TEXT NOT NULL,
             PRIMARY KEY(article_id,feed_id)
         );
+        CREATE TABLE IF NOT EXISTS article_youtube_views (
+            article_id TEXT PRIMARY KEY, views INTEGER NOT NULL, sampled_at TEXT NOT NULL
+        );
         CREATE INDEX IF NOT EXISTS idx_articles_event ON articles(event_id);
         CREATE INDEX IF NOT EXISTS idx_articles_pending ON articles(analysis_state, collected_at);
         CREATE INDEX IF NOT EXISTS idx_analysis_article ON analysis_attempts(article_id, attempted_at);
@@ -232,6 +235,11 @@ class MarketIntelligence:
                     WHERE articles.analysis_state='filtered' AND excluded.analysis_state='pending'""",
                     (article_id, feed_id, item.title, url, published_at, stamp, item.summary, language,
                      getattr(item, "feed_name", feed_id), state))
+                views = getattr(item, "youtube_views", None)
+                if views is not None:
+                    self.db.execute("""INSERT INTO article_youtube_views VALUES (?,?,?)
+                        ON CONFLICT(article_id) DO UPDATE SET views=excluded.views, sampled_at=excluded.sampled_at
+                        WHERE excluded.sampled_at>=article_youtube_views.sampled_at""", (article_id, views, stamp))
                 rank = getattr(item, "rank", None)
                 if rank is not None:
                     self.db.execute("""INSERT INTO article_hotlist VALUES (?,?,?,?)
@@ -748,6 +756,7 @@ class MarketIntelligence:
         cutoff = (self.now() - timedelta(days=int(self.settings.get("retention_days", 30)))).isoformat()
         self.db.execute("DELETE FROM analysis_attempts WHERE attempted_at<?", (cutoff,))
         self.db.execute("DELETE FROM article_hotlist WHERE seen_at<?", (cutoff,))
+        self.db.execute("DELETE FROM article_youtube_views WHERE sampled_at<?", (cutoff,))
         self.db.execute("DELETE FROM articles WHERE collected_at<?", (cutoff,))
         self.db.execute("DELETE FROM event_versions WHERE event_id IN (SELECT id FROM events WHERE updated_at<?)", (cutoff,))
         self.db.execute("DELETE FROM events WHERE updated_at<?", (cutoff,))
