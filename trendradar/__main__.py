@@ -1627,11 +1627,11 @@ class NewsAnalyzer:
 
         return html_file
 
-    def _run_market_intelligence(self, results, names):
+    def _run_market_intelligence(self, results, names, rss_items=None, rss_new_items=None):
         settings = self.ctx.config.get("MARKET_INTELLIGENCE", {})
         if not settings.get("enabled", False):
             return
-        from market_intelligence import MarketIntelligence
+        from market_intelligence import MarketIntelligence, public_site
         from market_intelligence.status import publish_current
         from trendradar.ai.client import AIClient
 
@@ -1644,6 +1644,11 @@ class NewsAnalyzer:
             if rss_data is not None:
                 extension.ingest(rss_data)
             extension.ingest_hotlist(results, names)
+            if rss_data is not None and any(item.get("success") for item in health.values()):
+                try:
+                    public_site.publish_home(rss_items, rss_new_items, extension.now(), self.report_mode)
+                except Exception as error:
+                    print(f"[市场情报] 公网 RSS 发布失败: {type(error).__name__}")
             extension.analyze_pending()
             extension.dispatch_urgent()
             extension.dispatch_digest()
@@ -1667,7 +1672,7 @@ class NewsAnalyzer:
             self._market_rss = (None, {}, {})
             rss_items, rss_new_items, raw_rss_items, rss_new_urls = self._crawl_rss_data()
             try:
-                self._run_market_intelligence(results, id_to_name)
+                self._run_market_intelligence(results, id_to_name, rss_items, rss_new_items)
             except Exception as exc:
                 print(f"[市场情报] 扩展运行失败: {type(exc).__name__}")
 

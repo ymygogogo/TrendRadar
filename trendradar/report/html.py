@@ -8,6 +8,7 @@ HTML 报告渲染模块
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Callable
 
+from trendradar.report.rss_views import rss_groups
 from trendradar.report.helpers import html_escape, calculate_rank_trend
 from trendradar.utils.time import convert_time_for_display
 from trendradar.ai.formatter import render_ai_analysis_html_rich
@@ -640,6 +641,10 @@ def render_html_content(
             }
 
             /* RSS 订阅内容样式 */
+            .rss-news h2 { font-size: 18px; margin: 0 0 8px; }
+            .rss-switch { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+            .rss-switch button { padding: 6px 12px; border: 1px solid #64748b; border-radius: 6px; cursor: pointer; }
+            .rss-switch button[aria-pressed="true"] { background: #047857; color: #fff; border-color: #047857; }
             .rss-section {
                 margin-top: 32px;
                 padding-top: 24px;
@@ -1776,7 +1781,7 @@ def render_html_content(
                 </div>"""
 
     # 生成 RSS 统计内容
-    def render_rss_stats_html(stats: List[Dict], title: str = "RSS 订阅更新") -> str:
+    def render_rss_stats_html(stats: List[Dict], title: str) -> str:
         """渲染 RSS 统计区块 HTML
 
         Args:
@@ -2132,8 +2137,26 @@ def render_html_content(
         return standalone_html
 
     # 生成 RSS 统计和新增 HTML
-    rss_stats_html = render_rss_stats_html(rss_items, "RSS 订阅更新") if rss_items else ""
-    rss_new_html = render_rss_stats_html(rss_new_items, "RSS 新增更新") if rss_new_items else ""
+    rss_stats_html = ""
+    new_groups, all_groups = rss_groups(rss_items, rss_new_items, mode)
+    if new_groups or all_groups:
+        label = "今日全部" if mode == "daily" else "当前全部"
+        def rss_count(groups):
+            return sum(group["count"] for group in groups)
+
+        new_panel = render_rss_stats_html(new_groups, "本轮新增") or "<p>本轮暂无新增 RSS 新闻。</p>"
+        rss_stats_html = '<section class="rss-news"><h2>RSS 新闻</h2>'
+        if mode != "incremental":
+            rss_stats_html += (
+                '<div class="rss-switch" role="group" aria-label="RSS 新闻范围">'
+                f'<button type="button" aria-pressed="true" data-rss-view="recent">本轮新增 {rss_count(new_groups)}</button>'
+                f'<button type="button" aria-pressed="false" data-rss-view="all">{label} {rss_count(all_groups)}</button></div>'
+            )
+        rss_stats_html += f'<div data-rss-panel="recent">{new_panel}</div>'
+        if mode != "incremental":
+            all_panel = render_rss_stats_html(all_groups, label) or "<p>暂无 RSS 新闻。</p>"
+            rss_stats_html += f'<div data-rss-panel="all" hidden>{all_panel}</div>'
+        rss_stats_html += '</section>'
 
     # 生成独立展示区 HTML
     standalone_html = render_standalone_html(standalone_data)
@@ -2145,7 +2168,7 @@ def render_html_content(
     region_contents = {
         "hotlist": stats_html,
         "rss": rss_stats_html,
-        "new_items": (new_titles_html, rss_new_html),  # 元组，分别处理
+        "new_items": new_titles_html,
         "standalone": standalone_html,
         "ai_analysis": ai_html,
     }
@@ -2164,20 +2187,7 @@ def render_html_content(
     has_previous_content = False
     for region in region_order:
         content = region_contents.get(region, "")
-        if region == "new_items":
-            # 特殊处理 new_items 区域（包含热榜新增和 RSS 新增两部分）
-            new_html, rss_new = content
-            if new_html:
-                if has_previous_content:
-                    new_html = add_section_divider(new_html)
-                html += new_html
-                has_previous_content = True
-            if rss_new:
-                if has_previous_content:
-                    rss_new = add_section_divider(rss_new)
-                html += rss_new
-                has_previous_content = True
-        elif content:
+        if content:
             if has_previous_content:
                 content = add_section_divider(content)
             html += content
@@ -2392,6 +2402,18 @@ def render_html_content(
                     }, 200);
                 };
             })();
+
+            document.querySelectorAll('[data-rss-view]').forEach(function(button) {
+                button.addEventListener('click', function() {
+                    var section = button.closest('.rss-news');
+                    section.querySelectorAll('[data-rss-view]').forEach(function(option) {
+                        option.setAttribute('aria-pressed', option === button);
+                    });
+                    section.querySelectorAll('[data-rss-panel]').forEach(function(panel) {
+                        panel.hidden = panel.dataset.rssPanel !== button.dataset.rssView;
+                    });
+                });
+            });
 
             function initBackToTop() {
                 var fabBar = document.querySelector('.fab-bar');
@@ -2959,11 +2981,11 @@ def render_html_content(
                     });
                 }
 
-                // RSS 订阅更新区
-                var rssSection = document.querySelector('.rss-section');
+                // RSS 新闻区
+                var rssSection = document.querySelector('[data-rss-panel]:not([hidden]) .rss-section');
                 if (rssSection) {
                     var rssSectionTitle = rssSection.querySelector('.rss-section-title');
-                    lines.push('## ' + (rssSectionTitle ? rssSectionTitle.textContent.trim() : 'RSS 订阅更新'));
+                    lines.push('## ' + (rssSectionTitle ? rssSectionTitle.textContent.trim() : 'RSS 新闻'));
                     lines.push('');
                     var feedGroups = rssSection.querySelectorAll('.feed-group');
                     feedGroups.forEach(function(group) {
@@ -2976,7 +2998,8 @@ def render_html_content(
                         var items = group.querySelectorAll('.rss-item');
                         items.forEach(function(item, i) {
                             var titleEl = item.querySelector('.rss-title a');
-                            var titleText = titleEl ? titleEl.textContent.trim() : '';
+                            var titleText = (item.querySelector('.rss-title') || {}).textContent || '';
+                            titleText = titleText.trim();
                             var url = titleEl ? (titleEl.href || '') : '';
                             if (!titleText) return;
                             var meta = [];

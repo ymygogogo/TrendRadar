@@ -259,7 +259,7 @@ def _digest_event(event, number):
         if event["hotlist_rank"] is not None:
             heat += f" · 近期榜单最高第 {event['hotlist_rank']} 名"
         heat = f'<p class="muted">{heat}</p>'
-    return f"""<article class="panel brief-event">
+    return f"""<article class="panel brief-event" id="event-{number}">
 <h2>{number}. {escape(event['title'])}</h2>
 {heat}<p class="muted">{escape(event['priority'])}{tier} · A 股影响评分 {event['score']} 分 ·
 {VERIFICATION_STATES.get(event['verification'], '待核实')} · 最近报道 {local_time(event['reported_at'], full=True)}</p>
@@ -270,7 +270,9 @@ def _digest_event(event, number):
 </article>"""
 
 
-def render_digest(edition):
+def render_digest(edition, *, public=False):
+    navigation = ('<a href="/">RSS 新闻</a> · <a href="/digests/index.html">简报历史</a>'
+                  if public else '<a href="/admin/">返回 TrendRadar 管理</a>')
     entries = "".join(_digest_event(event, number) for number, event in enumerate(edition["events"], 1))
     actual = len(edition["events"])
     missing = max(0, edition["target"] - actual)
@@ -291,12 +293,13 @@ def render_digest(edition):
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{escape(edition['title'])} · TrendRadar</title><style>{STYLE}
 .brief {{ max-width:61rem; }}
-.brief-event {{ margin-block:1rem; overflow-wrap:anywhere; }}
+.brief-event {{ margin-block:1rem; overflow-wrap:anywhere; scroll-margin-block-start:1rem; }}
+.brief-event:target {{ outline:2px solid var(--accent); }}
 .brief-event h3 {{ margin-block:.85rem .15rem; color:var(--accent); }}
 .brief-event ul {{ margin-block:0; padding-inline-start:1.3rem; }}
 .brief-event li {{ margin-block:.25rem; }}
 </style></head><body>
-<header class="top"><div class="bar"><a href="/admin/">返回 TrendRadar 管理</a></div></header>
+<header class="top"><div class="bar">{navigation}</div></header>
 <main class="brief"><h1>{escape(edition['title'])}</h1>
 <p class="muted">{local_time(edition['created_at'], full=True)} · 北京时间 · {status}</p>
 {entries}{closing}</main></body></html>""".encode()
