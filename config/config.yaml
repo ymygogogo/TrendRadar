@@ -127,6 +127,29 @@ rss:
   # - 正整数：覆盖全局设置，只推送此天数内的文章
   # - 0：禁用此频道的新鲜度过滤，推送所有文章
   feeds:
+    - id: "csrc-news"
+      name: "中国证监会"
+      category: "domestic_official"
+      url: "https://www.csrc.gov.cn/"
+      article_path_pattern: '/csrc/c100028/c[0-9]+/content\.shtml$'
+      expand_questions: true
+      proxy_url: ""
+      max_items: 12
+    - id: "eastmoney-market"
+      name: "东方财富财经要闻"
+      category: "domestic_media"
+      url: "https://finance.eastmoney.com/a/cywjh.html"
+      article_path_pattern: '/a/20[0-9]{14,}\.html$'
+      proxy_url: ""
+      max_items: 45
+    - id: "market-rumor-corrections"
+      name: "中国互联网联合辟谣平台"
+      category: "domestic_official"
+      url: "https://www.piyao.org.cn/"
+      article_path_pattern: '/20[0-9]{6}/[0-9a-f]+/c\.html$'
+      article_title_pattern: '资本市场|证监会|股市|救市|基金|证券|AI敞口'
+      proxy_url: ""
+      max_items: 12
     - id: "nbs-releases"
       name: "国家统计局最新发布"
       category: "domestic_official"
@@ -347,6 +370,11 @@ market_intelligence:
         - "profit warning"
     confirmation_min_confidence: 0.8
     weights: {scope: 0.30, strength: 0.35, credibility: 0.20, urgency: 0.15}
+  market_open:
+    enabled: true
+    alert_time: "09:40"
+    min_abs_gap: 0.5
+    max_context_items: 3
   market_close:
     enabled: true
     index_codes: ["000001", "000680", "000688"]

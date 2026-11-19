@@ -9,6 +9,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -528,6 +529,53 @@ class MarketIntelligence:
                     return
                 if self._deliver(event["id"], event["revision"], channel, self._format(event), "A 股重大事件预警"):
                     sent += 1
+
+    def dispatch_market_open(self):
+        from decimal import Decimal
+        from .market_open import SOURCE, fetch_open, market_context, opening_facts
+        from .trading_calendar import trading_day
+
+        cfg = self.settings.get("market_open", {})
+        _, channels = self._policy()
+        if not cfg.get("enabled") or not channels:
+            return
+        now = self.now()
+        calendar = self.settings.get("digest", {}).get("calendar_path", "config/cn_trading_calendar.yaml")
+        if trading_day(now.date(), calendar) is not True:
+            return
+        hour, minute = map(int, cfg.get("alert_time", "09:40").split(":"))
+        slot = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if not slot <= now < slot + timedelta(minutes=15):
+            return
+        key = "market-open:" + now.date().isoformat()
+        if not any(self._digest_delivery_due(key, channel) for channel in channels):
+            return
+        try:
+            values = fetch_open(now.date())
+        except (ValueError, OSError) as error:
+            LOG.warning("开盘行情等待重试: %s", type(error).__name__)
+            return
+        if max(map(abs, values.values())) < Decimal(str(cfg.get("min_abs_gap", 0.5))):
+            return
+        title = "A 股开盘观察"
+        opening = now.replace(hour=9, minute=30, second=0, microsecond=0)
+        facts = opening_facts(values)
+        items = market_context(self.db, now, int(cfg.get("max_context_items", 3)))
+        lines = [f"# {title} · {now:%m-%d}", facts, f"[行情来源]({SOURCE})",
+                 "**可能相关的消息与情景推演**"]
+        for item in items:
+            phase = "盘前" if datetime.fromisoformat(item["time"]) < opening else "开盘后"
+            when = datetime.fromisoformat(item["time"]).strftime("%m-%d %H:%M")
+            source = item["url"].replace("(", "%28").replace(")", "%29")
+            clean = re.sub(r"[\[\]<>`*_]", "", " ".join(item["title"].split()))[:52]
+            lines.append(f"- {item['state']} · {phase}{item['time_label']} {when} [{clean}]({source})")
+            lines.append(f"  {item['impact']}。")
+        if not items:
+            lines.append("暂无足够可核对的关联消息。")
+        lines.append("以上为可能关联，开盘方向本身不能证明原因。")
+        body = "\n".join(lines)
+        for channel in channels:
+            self._deliver(key, 1, channel, body, title, claim=True)
 
     def collect_market_close(self):
         from .market_close import fetch_snapshot

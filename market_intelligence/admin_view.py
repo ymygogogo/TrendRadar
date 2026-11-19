@@ -279,6 +279,15 @@ def render_digest(edition, *, public=False):
     status = f"收录 {actual} 条"
     if missing:
         status += f" · 距目标还差 {missing} 条"
+    context = ""
+    if edition.get("market_context"):
+        rows = "".join(
+            f'<li>{escape(item["state"])} · {local_time(item["time"])}{escape(item["time_label"])} · '
+            f'{escape(item["title"])} {_evidence_link(item["url"], "原文")}'
+            f'<p class="muted">{escape(item["impact"])}</p></li>' for item in edition["market_context"]
+        )
+        context = ('<section id="market-context" class="panel brief-event"><h2>市场核实与传闻跟踪</h2>'
+                   f'<ul>{rows}</ul></section>')
     closing = ""
     if edition.get("closing"):
         from .market_close import SOURCE
@@ -302,4 +311,4 @@ def render_digest(edition, *, public=False):
 <header class="top"><div class="bar">{navigation}</div></header>
 <main class="brief"><h1>{escape(edition['title'])}</h1>
 <p class="muted">{local_time(edition['created_at'], full=True)} · 北京时间 · {status}</p>
-{entries}{closing}</main></body></html>""".encode()
+{context}{entries}{closing}</main></body></html>""".encode()

@@ -248,6 +248,8 @@ def select_events(db, settings, companies, now, start):
 
 
 def make_edition(engine, key, now, start, heading, closing=False, shown_at=None):
+    from .market_open import market_context
+
     return {
         "id": public_id(key),
         "title": heading,
@@ -255,6 +257,7 @@ def make_edition(engine, key, now, start, heading, closing=False, shown_at=None)
         "target": MIN_EVENTS,
         "events": select_events(engine.db, engine.settings, engine.companies, now, start),
         "closing": engine.closing_lines(now.date()) if closing else [],
+        "market_context": market_context(engine.db, now) if engine.settings.get("market_open", {}).get("enabled") else [],
     }
 
 
@@ -295,6 +298,9 @@ def digest_message(edition, detail_origin="", *, public=False, max_bytes=MESSAGE
     if len(events) < edition["target"]:
         lines[1] += f" · 距目标还差 {edition['target'] - len(events)} 条符合条件的事件"
     url = digest_url(detail_origin, edition["id"], public=public) if detail_origin else ""
+    context = edition.get("market_context", [])
+    if context and url:
+        lines.append(f"[市场核实与传闻跟踪 {len(context)} 条]({url}#market-context)")
     footer = f"\n\n[整期简报]({url})" if url else ""
     entries = []
     for index, event in enumerate(events, 1):

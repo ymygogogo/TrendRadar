@@ -10,10 +10,11 @@ import random
 from dataclasses import dataclass
 from typing import List, Dict, Optional, Tuple
 
+import re
 import requests
 
 from .parser import RSSParser
-from .links import parse_article_index
+from .links import parse_article_index, parse_official_qa
 from trendradar.storage.base import RSSItem, RSSData
 from trendradar.utils.time import get_configured_time, is_within_days, DEFAULT_TIMEZONE
 
@@ -28,6 +29,8 @@ class RSSFeedConfig:
     enabled: bool = True        # 是否启用
     max_age_days: Optional[int] = None  # 文章最大年龄（天），覆盖全局设置；None=使用全局，0=禁用过滤
     article_path_pattern: str = ""  # Official HTML index adapter when no feed is available
+    article_title_pattern: str = ""
+    expand_questions: bool = False
     proxy_url: Optional[str] = None  # None=继承 RSS 代理；空串=直连；URL=本源专用代理
 
 
@@ -134,13 +137,28 @@ class RSSFetcher:
 
             if feed.article_path_pattern:
                 response.encoding = response.apparent_encoding or response.encoding
-                parsed_items = parse_article_index(response.text, response.url, feed.article_path_pattern)
+                parsed_items = parse_article_index(response.text, response.url, feed.article_path_pattern, feed.article_title_pattern)
             else:
                 parsed_items = self.parser.parse(response.text, response.url)
 
             # 限制条目数量（0=不限制）
             if feed.max_items > 0:
                 parsed_items = parsed_items[:feed.max_items]
+
+            if feed.expand_questions:
+                for item in [entry for entry in parsed_items if "答记者问" in entry.title][:3]:
+                    try:
+                        detail = session.get(item.url, timeout=min(self.timeout, 5), allow_redirects=False)
+                        if detail.status_code != 200:
+                            continue
+                        qa = parse_official_qa(detail.content[:524288].decode("utf-8", errors="replace"))
+                        if qa:
+                            question, answer = qa
+                            label = "（辟谣）" if re.search(r"不属实|系谣言|不实", answer) else ""
+                            item.title = f"{feed.name}回应{label}：{question}"
+                            item.summary = answer
+                    except requests.RequestException:
+                        continue
 
             # 转换为 RSSItem（使用配置的时区）
             now = get_configured_time(self.timezone)
@@ -294,6 +312,8 @@ class RSSFetcher:
                 max_age_days=max_age_days,  # None=使用全局，0=禁用，>0=覆盖
                 proxy_url=feed_config.get("proxy_url"),
                 article_path_pattern=feed_config.get("article_path_pattern", ""),
+                article_title_pattern=feed_config.get("article_title_pattern", ""),
+                expand_questions=feed_config.get("expand_questions", False),
             )
             if feed.id and feed.url:
                 feeds.append(feed)

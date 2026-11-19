@@ -83,6 +83,8 @@ def trading_command(command, slot):
                 engine.dispatch_weekly_calendar()
             elif command == "market-close":
                 engine.collect_market_close()
+            elif command == "market-open":
+                engine.dispatch_market_open()
             else:
                 if slot in settings.get("market_close", {}).get("display_slots", []):
                     engine.collect_market_close()
@@ -135,7 +137,7 @@ def brief_now(send, publish_preview):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["check-sources", "health", "digest-cron", "trading-digest", "weekly-calendar", "market-close", "brief-now", "publish-public-history"])
+    parser.add_argument("command", choices=["check-sources", "health", "digest-cron", "trading-digest", "weekly-calendar", "market-close", "brief-now", "publish-public-history", "market-open"])
     parser.add_argument("--database", default="output/market_intelligence.db")
     parser.add_argument("--slot", help="Configured trading digest time in HH:MM")
     delivery = parser.add_mutually_exclusive_group()
@@ -148,7 +150,7 @@ def main():
         parser.error("--send and --publish-preview require brief-now")
     if args.command == "trading-digest" and args.slot is None:
         parser.error("trading-digest requires --slot")
-    if args.command in {"digest-cron", "trading-digest", "weekly-calendar", "market-close", "publish-public-history"}:
+    if args.command in {"digest-cron", "trading-digest", "weekly-calendar", "market-close", "publish-public-history", "market-open"}:
         return trading_command(args.command, args.slot)
     return check_sources() if args.command == "check-sources" else health(args.database)
 

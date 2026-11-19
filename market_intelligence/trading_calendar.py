@@ -49,6 +49,14 @@ def cron_entries(settings):
             execute = slot + timedelta(minutes=delay)
             if execute.date() == slot.date():
                 entries.append(f"{execute.minute} {execute.hour} * * 0 cd /app && python -m market_intelligence weekly-calendar")
+    opening = settings.get("market_open", {})
+    if opening.get("enabled"):
+        start = datetime.strptime(opening.get("alert_time", "09:40"), "%H:%M")
+        if start.strftime("%H:%M") < "09:31":
+            raise ValueError("Opening observation must be scheduled after market open")
+        for delay in (0, 5, 10):
+            stamp = start + timedelta(minutes=delay)
+            entries.append(f"{stamp.minute} {stamp.hour} * * * cd /app && python -m market_intelligence market-open")
     sampling = settings.get("market_close", {})
     if sampling.get("enabled"):
         for value in sampling.get("sample_times", []):
