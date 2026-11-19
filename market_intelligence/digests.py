@@ -1,5 +1,6 @@
 """Selection, storage and notification text for a fixed market digest edition."""
 
+from collections import Counter
 from datetime import datetime, timedelta
 import hashlib
 import json
@@ -18,6 +19,7 @@ MIN_EVENTS = 8
 MAX_EVENTS = 20
 MESSAGE_BYTES = 3800
 TIER_ORDER = {"main": 0, "watch": 1, "extended": 2}
+REGION_LABELS = {"domestic": "国内", "international": "海外"}
 DIRECTIONS_ZH = {
     "potential_positive": "潜在利好",
     "potential_negative": "潜在承压",
@@ -116,7 +118,7 @@ def _event_details(row, data, tier, topic, signals, companies, sources):
     }
 
 
-def _linked_sources(db, event_id, publishers):
+def _linked_sources(db, event_id, publishers, domestic_platforms):
     rows = db.execute("""SELECT a.feed_id,a.source_name,a.url,h.name,h.category
         FROM articles a LEFT JOIN feed_health h USING (feed_id) WHERE a.event_id=?
         ORDER BY julianday(coalesce(a.published_at,a.collected_at)) DESC, a.id""", (event_id,))
@@ -129,6 +131,8 @@ def _linked_sources(db, event_id, publishers):
         sources.setdefault(publisher, {
             "name": publisher, "url": url,
             "international": row["category"] in ("international_media", "international_official"),
+            "domestic": (row["category"] in ("domestic_media", "domestic_official")
+                         or row["feed_id"] in domestic_platforms),
         })
     return list(sources.values())
 
@@ -137,7 +141,7 @@ def _has_international(event):
     return any(source["international"] for source in event.get("sources", ()))
 
 
-def _heat_signals(db, event_id, published, now, publishers):
+def _heat_signals(db, event_id, published, now, publishers, *, rank_bonus=True):
     sources = db.execute("""SELECT feed_id,NULL FROM articles WHERE event_id=?
         UNION ALL
         SELECT h.feed_id,h.rank FROM article_hotlist h JOIN articles a ON h.article_id=a.id
@@ -149,7 +153,7 @@ def _heat_signals(db, event_id, published, now, publishers):
         if rank is not None:
             ranks.append(rank)
     best = min(ranks, default=None)
-    return {"heat": _heat_score(len(outlets), best, published, now), "outlet_count": len(outlets),
+    return {"heat": _heat_score(len(outlets), best if rank_bonus else None, published, now), "outlet_count": len(outlets),
             "outlets": sorted(outlets), "hotlist_rank": best}
 
 
@@ -171,7 +175,7 @@ def _speech_key(title):
     return (key if len(key) >= 14 else None), transcript
 
 
-def _combine_speech_reports(buckets, now):
+def _combine_speech_reports(buckets, now, *, rank_bonus=True):
     index = {}
     combined = {}
     for tier, candidates in buckets.items():
@@ -201,7 +205,7 @@ def _combine_speech_reports(buckets, now):
             ranks = [value for value in (primary["hotlist_rank"], event["hotlist_rank"]) if value is not None]
             best = min(ranks, default=None)
             primary.update(outlets=outlets, outlet_count=len(outlets), hotlist_rank=best,
-                           heat=_heat_score(len(outlets), best, original_stamp, now))
+                           heat=_heat_score(len(outlets), best if rank_bonus else None, original_stamp, now))
         combined[tier] = events
     return {
         tier: [((-event["heat"], stamp, event["event_id"]), event) for stamp, event in items]
@@ -228,10 +232,62 @@ def _cover_topics(ranked, limit, reserved):
     return chosen
 
 
+def _balanced_choices(buckets, maximum):
+    limit = min(maximum, max(MIN_EVENTS, len(buckets["main"])))
+    seats = {"domestic": (limit + 1) // 2, "international": limit // 2}
+    ordered = [pair for tier in TIER_ORDER for pair in sorted(buckets[tier])]
+    regions = {
+        event["event_id"]: tuple(region for region in seats if any(
+            source.get(region) for source in event["sources"]))
+        for _, event in ordered
+    }
+    exclusive = Counter(options[0] for options in regions.values() if len(options) == 1)
+    chosen = {}
+
+    def reserve(pair):
+        _, event = pair
+        event_id = event["event_id"]
+        options = regions[event_id]
+        eligible = [region for region in options if seats[region] > 0]
+        if not eligible or event_id in chosen or len(chosen) == limit:
+            return False
+        # Assign a jointly reported event to the side with fewer single-region
+        # candidates available for its remaining seats.
+        region = max(eligible, key=lambda value: (seats[value] - exclusive[value], seats[value]))
+        seats[region] -= 1
+        if len(options) == 1:
+            exclusive[region] -= 1
+        event["edition_region"] = region
+        chosen[event_id] = pair
+        return True
+
+    covered = set()
+    for pair in sorted(buckets["main"]):
+        topic = pair[1]["topic"]
+        if topic not in covered and reserve(pair):
+            covered.add(topic)
+    for pair in ordered:
+        reserve(pair)
+
+    for pair in ordered:
+        if len(chosen) == limit:
+            break
+        event = pair[1]
+        if event["event_id"] not in chosen:
+            options = regions[event["event_id"]]
+            if options:
+                event["edition_region"] = options[0]
+            chosen[event["event_id"]] = pair
+
+    return [event for _, event in sorted(chosen.values(), key=lambda pair: (TIER_ORDER[pair[1]["tier"]], pair[0]))]
+
+
 def select_events(db, settings, companies, now, start):
     configured = settings.get("digest", {})
     threshold = int(settings.get("event_analysis", {}).get("min_priority_score", 70))
     max_events = event_limit(configured.get("max_events", MIN_EVENTS))
+    balanced = bool(configured.get("balance_regions", False))
+    domestic_platforms = set(settings.get("domestic_platforms", []))
     international_min = max(0, min(int(configured.get("min_international_events", 0)), max_events - len(TOPIC_LABELS)))
     yesterday = int((now - timedelta(hours=24)).timestamp())
     recent_start = int(start.timestamp())
@@ -257,7 +313,7 @@ def select_events(db, settings, companies, now, start):
         if not topic:
             continue
         published = row["reported_epoch"]
-        signals = _heat_signals(db, row["id"], published, now, publishers)
+        signals = _heat_signals(db, row["id"], published, now, publishers, rank_bonus=not balanced)
         if published >= recent_start:
             tier = "main"
         elif row["sent_in_digest"]:
@@ -269,10 +325,12 @@ def select_events(db, settings, companies, now, start):
         else:
             continue
         rank = (-signals["heat"], -published, row["id"])
-        sources = _linked_sources(db, row["id"], publishers)
+        sources = _linked_sources(db, row["id"], publishers, domestic_platforms)
         buckets[tier].append((rank, _event_details(row, data, tier, topic, signals, companies, sources)))
 
-    buckets = _combine_speech_reports(buckets, now)
+    buckets = _combine_speech_reports(buckets, now, rank_bonus=not balanced)
+    if balanced:
+        return _balanced_choices(buckets, max_events)
     international = [pair for tier in ("main", "watch", "extended") for pair in sorted(buckets[tier])
                      if _has_international(pair[1])]
     chosen = _cover_topics(buckets["main"], max_events, international[:international_min])
@@ -328,10 +386,19 @@ def digest_url(origin, edition_id, *, public=False):
     return origin.rstrip("/") + path
 
 
+def region_summary(events):
+    counts = Counter(event.get("edition_region") for event in events)
+    if not any(counts[region] for region in REGION_LABELS):
+        return ""
+    return " · ".join(f"{label} {counts[region]} 条" for region, label in REGION_LABELS.items())
+
+
 def digest_message(edition, detail_origin="", *, public=False, max_bytes=MESSAGE_BYTES):
     events = edition["events"]
     stamp = datetime.fromisoformat(edition["created_at"])
     lines = [f"# {edition['title']} · {stamp:%m-%d %H:%M}", f"本期 {len(events)} 条"]
+    if regions := region_summary(events):
+        lines[1] += f" · {regions}"
     if len(events) < edition["target"]:
         lines[1] += f" · 距目标还差 {edition['target'] - len(events)} 条符合条件的事件"
     url = digest_url(detail_origin, edition["id"], public=public) if detail_origin else ""
@@ -343,7 +410,10 @@ def digest_message(edition, detail_origin="", *, public=False, max_bytes=MESSAGE
     for index, event in enumerate(events, 1):
         topic = TOPIC_LABELS.get(event.get("topic"), event["priority"])
         label = f"{topic} · 热度 {event['heat']}" if "heat" in event else topic
-        if _has_international(event):
+        region_label = REGION_LABELS.get(event.get("edition_region"))
+        if region_label:
+            label += f" · {region_label}"
+        elif _has_international(event):
             label += " · 海外"
         if event["tier"] == "watch":
             label += " · 观察"

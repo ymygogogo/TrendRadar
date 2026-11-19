@@ -232,7 +232,7 @@ def _evidence_link(url, label):
 
 
 def _digest_event(event, number):
-    from .digests import DIRECTIONS_ZH
+    from .digests import DIRECTIONS_ZH, REGION_LABELS
     from .news_topics import TOPIC_LABELS
 
     tier = {"watch": " · 观察", "extended": " · 补录"}.get(event["tier"], "")
@@ -253,9 +253,10 @@ def _digest_event(event, number):
     sources = " ".join(_evidence_link(url, "同事件报道") for url in event.get("other_sources", []))
     evidence = event.get("sources", [])
     if evidence:
-        evidence = sorted(evidence, key=lambda item: not item["international"])
-        entries = [_evidence_link(item["url"], escape(item["name"] + ("（海外）" if item["international"] else "")))
-                   for item in evidence]
+        entries = []
+        for item in evidence:
+            region = "（海外）" if item["international"] else "（国内）" if item.get("domestic") else ""
+            entries.append(_evidence_link(item["url"], escape(item["name"] + region)))
         source = " · ".join(filter(None, entries))
         shown_urls = {item["url"] for item in evidence}
         sources = " ".join(_evidence_link(url, "同事件报道") for url in event.get("other_sources", [])
@@ -264,7 +265,9 @@ def _digest_event(event, number):
     topic = TOPIC_LABELS.get(event.get("topic"))
     heat = ""
     if topic:
-        heat = f"{topic} · 热度 {event['heat']} · {event['outlet_count']} 家来源"
+        region = REGION_LABELS.get(event.get("edition_region"))
+        prefix = f"{region} · {topic}" if region else topic
+        heat = f"{prefix} · 热度 {event['heat']} · {event['outlet_count']} 家来源"
         if event["hotlist_rank"] is not None:
             heat += f" · 近期榜单最高第 {event['hotlist_rank']} 名"
         heat = f'<p class="muted">{heat}</p>'
@@ -280,12 +283,16 @@ def _digest_event(event, number):
 
 
 def render_digest(edition, *, public=False):
+    from .digests import region_summary
+
     navigation = ('<a href="/">RSS 新闻</a> · <a href="/digests/index.html">简报历史</a>'
                   if public else '<a href="/admin/">返回 TrendRadar 管理</a>')
     entries = "".join(_digest_event(event, number) for number, event in enumerate(edition["events"], 1))
     actual = len(edition["events"])
     missing = max(0, edition["target"] - actual)
     status = f"收录 {actual} 条"
+    if regions := region_summary(edition["events"]):
+        status += f" · {regions}"
     if missing:
         status += f" · 距目标还差 {missing} 条"
     context = ""
