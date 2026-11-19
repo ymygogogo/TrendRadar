@@ -131,3 +131,16 @@ class RssTotalCountTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_rss_with_empty_guid_keeps_parsing_the_rest_of_the_feed():
+    from trendradar.crawler.rss.parser import RSSParser
+
+    feed = """<rss version="2.0"><channel><title>财经资讯</title>
+      <item><title>国际财经</title><link>https://example.com/world</link><guid isPermaLink="false"></guid></item>
+      <item><title>科技产业</title><link>https://example.com/tech</link><guid isPermaLink="false">second</guid></item>
+    </channel></rss>"""
+    entries = RSSParser().parse(feed)
+    assert [(item.title, item.guid) for item in entries] == [
+        ("国际财经", "https://example.com/world"), ("科技产业", "second"),
+    ]
