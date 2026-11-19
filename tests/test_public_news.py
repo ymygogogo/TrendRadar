@@ -66,3 +66,20 @@ def test_public_readback_gates_wecom_and_publishes_only_public_fields(tmp_path, 
         assert f"{edition['id']}.html" in uploads["digests/index.html"].decode()
     finally:
         engine.close()
+
+
+def test_hotlist_merges_filtered_ranked_headlines_into_public_home(monkeypatch):
+    monkeypatch.setenv("MARKET_DIGEST_BASE_URL", "https://tr.yumy.space")
+    results = {"first": {
+        "芯片设备订单": {"url": "https://example.com/chips?token=private", "ranks": [3, 2]},
+        "明星演唱会用芯片": {"url": "https://example.com/show", "ranks": [1]},
+        "经济内部明细": {"url": "https://tr.yumy.space/admin/", "ranks": [1]},
+        "国际贸易新闻": {"mobileUrl": "https://example.com/trade", "ranks": [1]},
+    }, "second": {"芯片设备订单": {"url": "https://example.com/chips", "ranks": [7]}}}
+    hotlist = public_site.hotlist_groups(results, {"first": "财经媒体"}, {})
+    page = public_site.render_home(None, None, NOW, hotlist=hotlist).decode()
+    assert "热点榜单 2" in page and 'data-view="hot" hidden' in page
+    assert page.count("芯片设备订单") == 1 and "榜单第 2 名" in page
+    assert "https://example.com/chips" in page and "https://example.com/trade" in page
+    assert "演唱会" not in page and "token=private" not in page and "tr.yumy.space" not in page
+    assert "导出 Markdown" in page and "导出图片" in page and "/digests/index.html" in page

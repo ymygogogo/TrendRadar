@@ -180,7 +180,7 @@ def render_notifications(snapshot):
             f'<th scope="col">投递记录</th></tr></thead><tbody>{"".join(rows)}</tbody></table></div>')
 
 
-def render_dashboard(settings, fields, token, message, snapshot):
+def render_dashboard(settings, fields, token, message, snapshot, *, news_url=""):
     data = snapshot or {}
     numbers = "".join(
         f'<label>{label}<input name="{key}" type="number" required value="{int(settings[key])}"></label>'
@@ -200,7 +200,7 @@ def render_dashboard(settings, fields, token, message, snapshot):
 <span class="brand">TrendRadar 管理</span>
 <nav aria-label="页面导航">
 <a href="#overview">总览</a><a href="#channels">渠道</a><a href="#settings">设置</a>
-<a href="/news/">新闻报告</a>
+<a href="{escape(news_url or "/news/")}">新闻报告</a>
 </nav></div></header>
 <main>
 <section id="overview" aria-labelledby="overview-title">

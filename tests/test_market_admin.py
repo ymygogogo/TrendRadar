@@ -95,3 +95,50 @@ def test_password_provision_writes_hash_only(monkeypatch, tmp_path):
     assert stored["hash"] == password_hash("local-test-credential", bytes.fromhex(stored["salt"]))
     assert "local-test-credential" not in destination.read_text()
     assert destination.stat().st_mode & 0o777 == 0o600
+
+
+def test_network_access_uses_peer_and_origin_for_password_free_admin(tmp_path):
+    from http.client import HTTPConnection
+
+    origin = "https://tr.yumy.space"
+    public = "https://news.yumy.space/"
+    state = tmp_path / "settings.json"
+    server = AdminServer(("127.0.0.1", 0), {}, state, tmp_path / "missing-password.json", origin,
+                         news_url=public, trusted_networks=["127.0.0.1/32"])
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    def request(method, route, *, client="127.0.0.1", headers=None, data=None):
+        with_connection = HTTPConnection("127.0.0.1", server.server_port, timeout=5,
+                                         source_address=(client, 0))
+        try:
+            with_connection.request(method, route, data, {"Host": "tr.yumy.space", **(headers or {})})
+            response = with_connection.getresponse()
+            return response.status, dict(response.getheaders()), response.read().decode()
+        finally:
+            with_connection.close()
+
+    try:
+        for route, expected in (("/", "/admin/"), ("/admin", "/admin/"), ("/news/", public)):
+            code, headers, _ = request("GET", route)
+            assert code == 302 and headers["Location"] == expected
+        code, headers, body = request("GET", "/admin/")
+        assert code == 200 and "WWW-Authenticate" not in headers
+        assert f'href="{public}"' in body
+        assert request("GET", "/admin/", headers={"Host": "foreign.example"})[0] == 403
+        spoofed = {"X-Forwarded-For": "127.0.0.1", "X-Real-IP": "127.0.0.1"}
+        for route in ("/admin/", "/admin/metrics", "/admin/digests/" + "a" * 24):
+            assert request("GET", route, client="127.0.0.2", headers=spoofed)[0] == 403
+        data = urlencode({"token": server.token, "min_priority_score": 75, "urgent_priority_score": 90,
+                          "max_articles_per_run": 24, "max_articles_per_day": 250,
+                          "max_digest_events": 8, "ignore_title_terms": "饭圈"})
+        assert request("POST", "/admin/", client="127.0.0.2",
+                       headers={"Origin": origin, **spoofed}, data=data)[0] == 403
+        assert request("POST", "/admin/", headers={"Origin": "https://news.yumy.space"}, data=data)[0] == 403
+        assert not state.exists()
+        assert request("POST", "/admin/", headers={"Origin": origin}, data=data)[0] == 200
+        assert json.loads(state.read_text())["ignore_title_terms"] == ["饭圈"]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()

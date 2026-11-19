@@ -109,19 +109,11 @@ docker compose --env-file image.env exec -T trendradar python -m market_intellig
 
 ## 管理入口
 
-PVE 配置将管理服务单独发布到 VM109 的 HTTPS 443 端口。管理页为 `https://tr.yumy.space/admin/`，以 `admin` 登录。最新新闻报告可通过同域 HTTPS 根路径与 `/news/` 打开，HTTP 80 和 8080 保留原报告入口。HTTPS 报告独立隔离，管理容器只读挂载最新 HTML 目录。管理服务支持媒体标题过滤词、AI 分析预算、评分阈值和简报条数，保存后从下一轮任务读取。交易时段和来源清单由仓库配置管理。
+[管理后台](https://tr.yumy.space/) 直接进入 `/admin/`。PVE 配置将入口绑定至 VM109 的局域网 IPv4 地址，HTTP 80 和 8080 跳转到 HTTPS，旧 `/news/` 地址跳转至公网新闻。后台根据 TCP 对端地址允许家里局域网及通过子网路由接入的 Tailscale 客户端免密码访问。保持入口在私有网络内，避免公网端口转发或从受信任网段代理公网请求。
 
-镜像部署前，在 VM109 准备 `/opt/trendradar/admin-state` 与 `/opt/trendradar/admin-private`，仅允许运行管理服务的 UID 10001 访问。私有目录存放 HTTPS 证书、VM 私钥及管理密码哈希。采集容器只读挂载设置目录，静态报告目录不包含这些文件。管理登录失败、表单校验失败或跨站提交不会修改设置。
+管理服务支持媒体标题过滤词、AI 分析预算、评分阈值和简报条数，保存后从下一轮任务读取。写操作校验请求来源和 CSRF 令牌。交易时段和来源清单由仓库配置管理。
 
-如需换密码，在 VM109 通过以下命令交互操作。密码文件为持久化状态，重启后仍有效。
-
-```text
-cd /opt/trendradar
-image=$(sed -n 's/^TREND_IMAGE=//p' image.env)
-docker run --rm -it --user 10001:10001 \
-  -v "$PWD/admin-private:/app/admin-private" \
-  --entrypoint python "$image" -m market_intelligence.admin set-password
-```
+VM109 使用 `/opt/trendradar/admin-state` 持久化设置，HTTPS 证书和私钥位于 `/opt/trendradar/admin-private`。其他部署留空 `MARKET_ADMIN_TRUSTED_NETWORKS` 时使用原有密码登录。
 
 ## 上市公司业务关联
 
@@ -133,11 +125,11 @@ docker run --rm -it --user 10001:10001 \
 
 管理页总览展示当前数据库中的待分析、已分析、重点事件和成功投递数，并列出过去 24 小时最近报道的至多 8 条 P0 / P1 事件。采集渠道展示 RSS 来源类别、成功次数、抓取耗时、最近成功时间和最新文章时间。推送渠道展示实际启用状态、缺少凭据的渠道、最近投递结果和成功及失败记录数。定时简报运行和采集结束后都会更新快照，页面时间统一显示为北京时间。
 
-Prometheus 可通过管理员身份抓取 `https://tr.yumy.space/admin/metrics`。指标覆盖新闻处理状态、事件等级、投递状态及各 RSS 源抓取次数、成功次数、连续失败次数和最近耗时。用 `trendradar_status_snapshot_timestamp_seconds` 判断状态快照的时效。管理服务只读挂载独立的状态快照。采集日志、源 URL 和凭据留在采集侧，事件摘要仅出现在需要登录的管理页。
+Prometheus 可从受信任网段抓取 `https://tr.yumy.space/admin/metrics`。指标覆盖新闻处理状态、事件等级、投递状态及各 RSS 源抓取次数、成功次数、连续失败次数和最近耗时。用 `trendradar_status_snapshot_timestamp_seconds` 判断状态快照的时效。管理服务只读挂载独立的状态快照。采集日志、源 URL 和凭据留在采集侧，事件摘要仅出现在私有管理页。
 
 ## 公网新闻站
 
-采集容器在 RSS 成功抓取后导出首页。公开版本包含标题、来源、发布时间和原文链接。简报详情包含事件摘要、潜在影响、相关概念和有证据的股票。管理路由、运行状态和 SQLite 都留在 PVE。公开站复用简报的固定期次 ID，地址形如 `/digests/<id>.html#event-1`。
+[新闻首页](https://news.yumy.space/) 集中展示本轮新增 RSS、当前全部 RSS 和热点榜单，支持搜索标题和导出当前筛选结果。榜单沿用采集过滤，并按科技、经济、全球分组显示排名和原文链接。采集容器在 RSS 成功抓取后更新首页。简报详情包含事件摘要、潜在影响、相关概念和有证据的股票。管理路由、运行状态和 SQLite 都留在 PVE。公开站复用简报的固定期次 ID，地址形如 `/digests/<id>.html#event-1`。
 
 在中国香港创建独立 OSS Bucket，设置静态首页 `index.html`，绑定公网子域名并配置 HTTPS。仅该 Bucket 允许匿名读对象。发布身份只需要 `oss:PutObject`，资源范围为该 Bucket 的 `index.html` 和 `digests/*`。在采集服务私有运行环境设置 `MARKET_PUBLIC_NEWS_URL`、`MARKET_PUBLIC_NEWS_BUCKET` 和该发布身份的 OSS 凭据。两项公开站配置均为空时停用同步。仅启用其中一项视为配置错误。
 
