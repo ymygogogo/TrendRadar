@@ -1,6 +1,8 @@
 """Publish only the static, public projection of TrendRadar's news and digests."""
 
-from datetime import datetime, timedelta
+from base64 import b64encode
+from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 import fcntl
 import json
 from hashlib import sha256
@@ -15,7 +17,8 @@ import requests
 
 from trendradar.report.rss_views import rss_groups
 
-from .digests import digest_url, region_summary, safe_url
+from .crawl_filter import blocked_titles
+from .digests import REGION_LABELS, digest_url, region_summary, safe_url
 from .news_topics import NewsTopics, TOPIC_LABELS
 from .ui_theme import THEME
 
@@ -90,25 +93,43 @@ h1,h2,p { margin:0; }
 h1 { font-size:clamp(1.65rem,4.2vw,2.5rem); line-height:1.15; letter-spacing:-.035em; }
 h2 { font-size:1.16rem; line-height:1.4; }
 small,.muted { color:var(--muted); font-size:.85rem; }
-#collected { margin:.45rem 0 1.15rem; font-variant-numeric:tabular-nums; }
-.brief,.topic-card,.history { border:1px solid var(--edge); border-radius:var(--radius); background:var(--surface); }
-.brief {
-  padding:clamp(1rem,2.5vw,1.55rem); display:grid; gap:1rem;
-  grid-template-columns:minmax(0,.9fr) minmax(0,1.2fr); border-inline-start:3px solid var(--accent);
+#collected { font-size:.81rem; letter-spacing:.015em; font-variant-numeric:tabular-nums; }
+#collected time { color:#b8edf7; font-weight:680; }
+.news-hero {
+  isolation:isolate; position:relative; overflow:hidden; display:flex; align-items:center;
+  min-height:20rem; border:1px solid #34586f; border-radius:1rem;
+  background:#091723; box-shadow:inset 0 1px 0 #8ae8fa28,0 15px 54px #0006;
 }
-.brief-main { display:grid; align-content:start; gap:.5rem; min-width:0; }
-.brief h2 { font-size:clamp(1.3rem,3.2vw,1.77rem); letter-spacing:-.025em; }
-.brief h2 a,.brief li a { color:var(--ink); text-decoration:none; }
-.brief a:hover,.topic-card li a:hover { text-decoration:underline; }
-.brief ul { align-self:start; margin:0; padding:0 0 0 1.15rem; list-style:none; border-inline-start:1px solid var(--edge); }
-.brief li { padding:.4rem 0; border-bottom:1px solid var(--edge-soft); }
-.brief li:first-child { padding-top:0; }
-.brief li:last-child { padding-bottom:0; border:0; }
-.brief li a { display:block; font-weight:620; }
-.brief .actions { margin-top:.15rem; }
+.radar-visual {
+  position:absolute; inset:0 0 0 auto; width:76%; height:100%; object-fit:cover; object-position:center 51%;
+  z-index:-2;
+}
+.news-hero::before {
+  content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
+  background:linear-gradient(90deg,#091723 23%,#091723ed 34%,#09172365 61%,transparent 86%);
+}
+.news-hero::after {
+  content:""; position:absolute; inset:auto 0 0; height:1px; pointer-events:none;
+  background:linear-gradient(90deg,#69dae8,#488aa52b 74%,transparent);
+}
+.brief-main { display:grid; gap:.5rem; padding:clamp(1.2rem,3.5vw,2.8rem); max-width:62%; min-width:0; }
+.brief-main h1 { font-size:clamp(2.2rem,5.6vw,4.55rem); letter-spacing:-.045em; margin:.15rem 0 .34rem; }
+.brief-main h2 { font-size:clamp(1.02rem,2.2vw,1.55rem); }
+.brief-main h2 a { color:var(--ink); text-decoration:none; }
+.brief-main h2 a:hover { text-decoration:underline; }
+.digest-meta { font-size:.85rem; color:#a7c8da; }
+.brief-headlines { margin:.7rem 0 0; padding:0; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.65rem; list-style:none; }
+.brief-headlines li { border:1px solid var(--edge); border-radius:var(--radius); background:var(--surface); }
+.brief-headlines a { color:var(--ink); padding:.68rem .8rem; display:block; text-decoration:none; height:100%; }
+.brief-headlines a:hover { background:var(--surface-raised); border-radius:inherit; }
+.brief-headlines small { display:block; color:var(--accent); margin-bottom:.25rem; font-weight:580; }
+.brief-headlines span { display:block; font-weight:650; }
+.brief-main .actions { margin-top:.5rem; }
+.topic-card,.history { border:1px solid var(--edge); border-radius:var(--radius); background:var(--surface); }
 .button-link { display:inline-flex; align-items:center; padding:.45rem .8rem; min-height:2.65rem; border-radius:.45rem;
   background:var(--accent); color:var(--accent-ink); font-weight:720; text-decoration:none; }
-.news-heading { margin-top:1.85rem; }
+.news-heading { margin-top:1.85rem; font-size:1.25rem; }
+.scope button { font-variant-numeric:tabular-nums; }
 .controls,.scope { margin:.65rem 0; }
 .controls input { flex:1; min-width:min(100%,14rem); }
 button,input,select { color:inherit; background:var(--surface); font:inherit; border:1px solid var(--edge);
@@ -137,8 +158,20 @@ button[aria-pressed=true] { border-color:var(--accent); background:var(--accent-
 [hidden] { display:none!important; }
 @media (max-width:44rem) {
   main,.masthead { width:calc(100% - 2rem); }
-  .news-grid,.brief { grid-template-columns:1fr; }
-  .brief ul { padding:0; border-inline-start:0; border-top:1px solid var(--edge); padding-top:.65rem; }
+  .news-grid,.brief-headlines { grid-template-columns:1fr; }
+  .news-hero { min-height:15.35rem; }
+  .brief-main { max-width:100%; width:100%; }
+  .radar-visual { width:100%; object-position:60% 50%; }
+  .news-hero::before { background:linear-gradient(90deg,#091723f5 3%,#091723ba 52%,#09172333 100%); }
+  .brief-headlines { gap:0; background:var(--surface); border:1px solid var(--edge); border-radius:var(--radius); }
+  .brief-headlines li { border:0; border-radius:0; background:transparent; }
+  .brief-headlines li + li { border-top:1px solid var(--edge-soft); }
+  .brief-headlines a { padding:.53rem .68rem; }
+  .brief-headlines a:has(small) { display:grid; grid-template-columns:4.5rem minmax(0,1fr); align-items:baseline; gap:.38rem; }
+  .brief-headlines small { margin:0; font-size:.74rem; }
+  .brief-headlines span { font-size:.9rem; }
+  .scope { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .scope button { text-align:start; }
   header nav { gap:.15rem; }
   header nav a { padding:.35rem .42rem; font-size:.88rem; }
   main { padding-top:1.15rem; }
@@ -147,19 +180,34 @@ button[aria-pressed=true] { border-color:var(--accent); background:var(--accent-
 }
 @media print {
   :root { color-scheme:light; --ink:#111; --muted:#333; --edge:#ddd; --edge-soft:#e5e5e5; --surface:#fff; --bg:#fff; --accent:#111; }
-  header,.scope,.controls,.brief .actions { display:none; }
+  header,.scope,.controls,.radar-visual,.news-hero::before,.news-hero::after { display:none; }
+  .news-hero { min-height:0; background:var(--bg); box-shadow:none; }
+  #collected time,.digest-meta { color:var(--muted); }
   .topic-card li { break-inside:avoid; }
 }
 """
+# The landing page is published as one self-contained OSS object.
+HERO_ASSET = Path(__file__).with_name("static") / "global-radar.webp"
 
-def _page(title, body, script="", *, history=False):
+
+@lru_cache(maxsize=1)
+def _hero_image():
+    try:
+        data = b64encode(HERO_ASSET.read_bytes()).decode("ascii")
+    except FileNotFoundError:
+        return ""
+    return f'<img class="radar-visual" alt="" src="data:image/webp;base64,{data}" fetchpriority="high" decoding="async">'
+
+
+def _page(title, body, script="", *, history=False, heading=True):
     current = ' aria-current="page"'
+    page_heading = f"<h1>{title}</h1>" if heading else ""
     return f"""<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} · TrendRadar</title><style>{SITE_STYLE}</style></head>
-<body><header><div class="masthead"><a class="brand" href="/">TrendRadar <small>新闻</small></a><nav aria-label="主导航">
+<body><header><div class="masthead"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true"></span>TrendRadar <small>新闻</small></a><nav aria-label="主导航">
 <a href="/"{"" if history else current}>新闻首页</a><a href="/digests/index.html"{current if history else ""}>简报历史</a>
-</nav></div></header><main><h1>{title}</h1>{body}</main>{script}</body></html>""".encode()
+</nav></div></header><main>{page_heading}{body}</main>{script}</body></html>""".encode()
 
 
 def latest_published_edition(db):
@@ -169,9 +217,14 @@ def latest_published_edition(db):
     return json.loads(row[0]) if row else None
 
 
-def _latest_brief(brief):
+def _latest_brief(brief, now):
+    collected = f'<p id="collected" class="muted">本轮采集 <time datetime="{now.isoformat()}">{now:%m-%d %H:%M}</time> · 北京时间</p>'
+    heading = f'{collected}<h1>全球要闻</h1>'
+    image = _hero_image()
     if not brief or not re.fullmatch(r"[a-f0-9]{24}", brief["id"]):
-        return '<section class="brief"><div class="brief-main"><h2>新闻简报</h2><p><a href="/digests/index.html">浏览简报历史</a></p></div></section>'
+        return (f'<section class="news-hero" aria-label="新闻简报">{image}<div class="brief-main">{heading}'
+                '<div class="actions"><a class="button-link" href="/digests/index.html">浏览简报历史</a></div>'
+                '</div></section>')
     path = digest_url("", brief["id"], public=True)
     stamp = datetime.fromisoformat(brief["created_at"]).strftime("%m-%d %H:%M")
     events = brief["events"]
@@ -183,11 +236,39 @@ def _latest_brief(brief):
         if len(choices) == 3:
             break
         choices.add(index)
-    items = "".join(f'<li><a href="{path}#event-{i + 1}">{escape(events[i]["title"])}</a></li>' for i in sorted(choices))
-    return f"""<section class="brief" aria-label="最新简报">
-<div class="brief-main"><p class="muted">最新简报 · {details}</p><h2><a href="{path}">{escape(brief["title"])}</a></h2>
+    items = []
+    for i in sorted(choices):
+        event = events[i]
+        label = " · ".join(filter(None, (REGION_LABELS.get(event.get("edition_region")),
+                                        TOPIC_LABELS.get(event.get("topic")))))
+        meta = f'<small>{escape(label)}</small>' if label else ""
+        items.append(f'<li><a href="{path}#event-{i + 1}">{meta}<span>{escape(event["title"])}</span></a></li>')
+    return f"""<section class="news-hero" aria-label="最新简报">{image}
+<div class="brief-main">{heading}<p class="digest-meta">最新简报 · {details}</p>
+<h2><a href="{path}">{escape(brief["title"])}</a></h2>
 <div class="actions"><a class="button-link" href="{path}">阅读整期</a>
-<a href="/digests/index.html">浏览历史</a></div></div><ul>{items}</ul></section>"""
+<a href="/digests/index.html">浏览历史</a></div></div></section>
+<ul class="brief-headlines" aria-label="本期重点">{"".join(items)}</ul>"""
+
+
+def today_groups(db, settings, now):
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    topics = NewsTopics(settings)
+    blocked = blocked_titles(settings)
+    grouped = {topic: [] for topic in TOPIC_LABELS}
+    rows = db.execute("""SELECT id,title,url,summary,published_at,feed_id,source_name FROM articles
+        WHERE published_at IS NOT NULL AND julianday(published_at) BETWEEN julianday(?) AND julianday(?)
+        ORDER BY julianday(published_at) DESC, id""", (start.isoformat(), now.isoformat()))
+    for _, title, url, summary, published, feed, name in rows:
+        topic = topics.classify(title, (), summary or "")
+        if topic and not blocked(title):
+            timestamp = datetime.fromisoformat(published)
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.replace(tzinfo=timezone.utc)
+            stamp = timestamp.astimezone(now.tzinfo)
+            grouped[topic].append({"title": title, "url": url, "source_id": feed, "source_name": name or feed,
+                                   "time_display": stamp.strftime("%H:%M")})
+    return [{"word": TOPIC_LABELS[topic], "titles": titles} for topic, titles in grouped.items() if titles]
 
 
 def _rss_panel(groups, view, regions, active):
@@ -246,11 +327,12 @@ def hotlist_groups(results, names, settings):
     return groups
 
 
-def render_home(current, new, now, mode="current", *, hotlist=(), regions=None, brief=None):
+def render_home(current, new, now, mode="current", *, hotlist=(), regions=None, brief=None, today=None):
     recent, all_groups = rss_groups(current, new, mode)
-    active = "all" if mode != "incremental" and not recent and all_groups else "recent"
+    active = "today" if today else "all" if mode != "incremental" and not recent and all_groups else "recent"
     regions = regions or {}
-    views = [("recent", "本轮新增", recent)]
+    views = [("today", "今日新闻", today)] if today is not None else []
+    views.append(("recent", "本轮新增", recent))
     if mode != "incremental":
         views.append(("all", "今日全部" if mode == "daily" else "当前全部", all_groups))
     views.append(("hot", "热点榜单", hotlist))
@@ -260,8 +342,7 @@ def render_home(current, new, now, mode="current", *, hotlist=(), regions=None, 
         for view, label, _, count in rendered)
     panels = "".join(panel for _, _, panel, _ in rendered)
     initial_count = next(count for view, _, _, count in rendered if view == active)
-    body = f"""<p id="collected" class="muted">本轮采集 {now:%m-%d %H:%M} · 北京时间</p>
-{_latest_brief(brief)}<h2 id="browse" class="news-heading">浏览新闻</h2>
+    body = f"""{_latest_brief(brief, now)}<h2 id="browse" class="news-heading">新闻速览</h2>
 <div class="scope" aria-labelledby="browse">{switch}</div>
 <div class="controls">
 <input type="search" aria-label="搜索新闻标题或来源" placeholder="搜索标题或来源">
@@ -357,7 +438,7 @@ document.querySelector('#export').addEventListener('click', () => {
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
-</script>""")
+</script>""", heading=False)
 
 
 def _upload(key, content, cache_control):
@@ -372,9 +453,9 @@ def _upload(key, content, cache_control):
     ))
 
 
-def publish_home(current, new, now, mode, *, hotlist=(), regions=None, brief=None):
+def publish_home(current, new, now, mode, *, hotlist=(), regions=None, brief=None, today=None):
     if public_origin():
-        page = render_home(current, new, now, mode, hotlist=hotlist, regions=regions, brief=brief)
+        page = render_home(current, new, now, mode, hotlist=hotlist, regions=regions, brief=brief, today=today)
         _upload("index.html", page, "public, max-age=120")
 
 
