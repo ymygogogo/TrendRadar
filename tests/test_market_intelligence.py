@@ -509,3 +509,35 @@ def test_urgent_budget_excludes_scheduled_digests_and_checks_current_threshold(t
         assert len(sends) == 1
     finally:
         engine.close()
+
+
+def test_headline_translation_reuses_analysis_call_and_survives_restart(tmp_path):
+    from market_intelligence import public_site
+
+    class TranslationClient(FakeClient):
+        calls = 0
+
+        def chat(self, messages, **kwargs):
+            self.calls += 1
+            prompt = json.loads(messages[1]["content"])
+            assert "headline_zh" in prompt["response_example"]
+            result = json.loads(super().chat(messages, **kwargs))
+            result["headline_zh"] = "美国新增芯片出口限制"
+            return json.dumps(result, ensure_ascii=False)
+
+    config = settings(tmp_path)
+    client = TranslationClient()
+    engine = MarketIntelligence(config, {}, client, now=lambda: NOW)
+    item = article("US adds chip export restrictions", "https://example.net/chip", "bbc-world")
+    engine.ingest(data(item))
+    engine.analyze_pending()
+    engine.close()
+    assert client.calls == 1
+    reopened = MarketIntelligence(config, {}, now=lambda: NOW)
+    try:
+        assert public_site.chinese_references(reopened.db, NOW) == {
+            (item.url, item.title): ("中文参考", "美国新增芯片出口限制"),
+        }
+        assert "headline_zh" not in json.loads(reopened.db.execute("SELECT analysis_json FROM events").fetchone()[0])
+    finally:
+        reopened.close()
