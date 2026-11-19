@@ -256,7 +256,11 @@ class RSSParser:
         published_at = self._parse_date(entry)
         summary = self._parse_summary(entry)
         author = self._parse_author(entry)
-        guid = entry.get("id") or entry.get("guid", {}).get("value") or url
+        guid = entry.get("id") or entry.get("guid")
+        if isinstance(guid, dict):
+            guid = guid.get("value")
+        if not isinstance(guid, str) or not guid.strip():
+            guid = url
 
         return ParsedRSSItem(
             title=title,
