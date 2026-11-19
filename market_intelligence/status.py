@@ -7,7 +7,7 @@ from pathlib import Path
 import tempfile
 
 
-def snapshot(db, now, channels=None):
+def snapshot(db, now, channels=None, model=None):
     status = {"updated_at": now.isoformat(), "updated_timestamp": int(now.timestamp())}
     for key, query in (
         ("articles", "SELECT analysis_state,count(*) FROM articles GROUP BY 1"),
@@ -16,6 +16,18 @@ def snapshot(db, now, channels=None):
     ):
         status[key] = {row[0]: row[1] for row in db.execute(query)}
     status["analysis_attempts"] = db.execute("SELECT count(*) FROM analysis_attempts").fetchone()[0]
+    status["model"] = model or {}
+    days = [(now.date() - timedelta(days=offset)).isoformat() for offset in range(6, -1, -1)]
+    attempts = dict(db.execute("""SELECT substr(attempted_at,1,10),count(*) FROM analysis_attempts
+        WHERE attempted_at>=? GROUP BY 1""", (days[0],)))
+    usage = {row[0]: list(row[1:]) for row in db.execute(
+        """SELECT substr(recorded_at,1,10),sum(input_tokens),sum(output_tokens),count(*),count(input_tokens),
+                  count(output_tokens) FROM model_usage WHERE recorded_at>=? GROUP BY 1""", (days[0],))}
+    status["model_usage"] = [
+        {"date": day, "attempts": attempts.get(day, 0), "input_tokens": u[0], "output_tokens": u[1],
+         "responses": u[2], "input_samples": u[3], "output_samples": u[4]}
+        for day in days for u in [usage.get(day, [None, None, 0, 0, 0])]
+    ]
     status["sources"] = [list(row) for row in db.execute(
         "SELECT feed_id,attempts,successes,consecutive_failures,duration_ms FROM feed_health ORDER BY feed_id")]
     status["source_details"] = [list(row) for row in db.execute(
@@ -46,12 +58,12 @@ def snapshot(db, now, channels=None):
     return status
 
 
-def publish(path, db, now, channels=None):
+def publish(path, db, now, channels=None, model=None):
     path = Path(path)
     fd, pending = tempfile.mkstemp(prefix=".status-", dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(snapshot(db, now, channels), handle, ensure_ascii=False)
+            json.dump(snapshot(db, now, channels, model), handle, ensure_ascii=False)
             os.fchmod(handle.fileno(), 0o644)
         os.replace(pending, path)
     finally:
@@ -62,8 +74,14 @@ def publish_current(engine):
     path = os.environ.get("MARKET_STATUS_PATH")
     if not path:
         return
+    from .model_settings import public_settings
+
+    config = engine.upstream_config
+    ai = config.get("AI", {})
+    model = public_settings(ai, config.get("MARKET_AI", ai))
+    model["analysis_enabled"] = bool(engine.settings.get("event_analysis", {}).get("enabled"))
     try:
-        publish(path, engine.db, engine.now(), engine.notification_status())
+        publish(path, engine.db, engine.now(), engine.notification_status(), model)
     except OSError as error:
         logging.getLogger(__name__).warning("状态快照写入失败: %s", type(error).__name__)
 

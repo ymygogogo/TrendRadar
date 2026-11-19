@@ -1637,7 +1637,7 @@ class NewsAnalyzer:
         from market_intelligence.status import publish_current
         from trendradar.ai.client import AIClient
 
-        ai = self.ctx.config.get("AI", {})
+        ai = self.ctx.config.get("MARKET_AI", self.ctx.config.get("AI", {}))
         client = AIClient(ai) if settings.get("event_analysis", {}).get("enabled") and ai.get("API_KEY") else None
         extension = MarketIntelligence(settings, self.ctx.config, client=client)
         try:

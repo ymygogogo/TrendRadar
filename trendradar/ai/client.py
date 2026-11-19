@@ -52,6 +52,8 @@ class AIClient:
     def chat(
         self,
         messages: List[Dict[str, str]],
+        *,
+        usage_callback=None,
         **kwargs
     ) -> str:
         """
@@ -102,6 +104,11 @@ class AIClient:
 
         # 调用 LiteLLM
         response = completion(**params)
+        if usage_callback is not None:
+            usage = getattr(response, "usage", None)
+            counts = [usage.get(key) if isinstance(usage, dict) else getattr(usage, key, None)
+                      for key in ("prompt_tokens", "completion_tokens")]
+            usage_callback(self.model, *counts)
 
         # 提取响应内容
         # 某些模型/提供商返回 list（内容块）而非 str，统一转为 str

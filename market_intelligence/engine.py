@@ -163,6 +163,10 @@ class MarketIntelligence:
             article_id TEXT NOT NULL, feed_id TEXT NOT NULL, rank INTEGER NOT NULL, seen_at TEXT NOT NULL,
             PRIMARY KEY(article_id,feed_id)
         );
+        CREATE TABLE IF NOT EXISTS model_usage (
+            recorded_at TEXT NOT NULL, model TEXT NOT NULL, input_tokens INTEGER, output_tokens INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_model_usage_at ON model_usage(recorded_at);
         CREATE TABLE IF NOT EXISTS article_youtube_views (
             article_id TEXT PRIMARY KEY, views INTEGER NOT NULL, sampled_at TEXT NOT NULL
         );
@@ -312,8 +316,17 @@ class MarketIntelligence:
         raw = self.client.chat([
             {"role": "system", "content": "You are a cautious Chinese A-share news analyst. Output only valid JSON."},
             {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
-        ], temperature=0)
+        ], temperature=0, usage_callback=self._record_usage)
         return validate_analysis(parse_json(raw), article["url"], {c["id"] for c in candidates})
+
+    def _record_usage(self, model, input_tokens, output_tokens):
+        counts = [value if type(value) is int and 0 <= value <= 10**9 else None
+                  for value in (input_tokens, output_tokens)]
+        try:
+            with self.db:
+                self.db.execute("INSERT INTO model_usage VALUES (?,?,?,?)", (self.now().isoformat(), model, *counts))
+        except sqlite3.Error as error:
+            LOG.warning("model usage recording failed: %s", type(error).__name__)
 
     def _refresh_analysis_queue(self, cutoff):
         # Re-evaluate unprocessed records when the configured filter changes.
@@ -755,6 +768,7 @@ class MarketIntelligence:
     def maintain(self):
         cutoff = (self.now() - timedelta(days=int(self.settings.get("retention_days", 30)))).isoformat()
         self.db.execute("DELETE FROM analysis_attempts WHERE attempted_at<?", (cutoff,))
+        self.db.execute("DELETE FROM model_usage WHERE recorded_at<?", (cutoff,))
         self.db.execute("DELETE FROM article_hotlist WHERE seen_at<?", (cutoff,))
         self.db.execute("DELETE FROM article_youtube_views WHERE sampled_at<?", (cutoff,))
         self.db.execute("DELETE FROM articles WHERE collected_at<?", (cutoff,))

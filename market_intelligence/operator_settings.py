@@ -41,20 +41,23 @@ def validate(values, base):
     return values
 
 
-def read(path, base):
+def read_document(path):
     try:
         with Path(path).open(encoding="utf-8") as handle:
-            config = json.load(handle)
+            return json.load(handle)
     except FileNotFoundError:
         return {}
+
+
+def read(path, base):
+    config = read_document(path)
     if isinstance(config, dict) and type(config.get("max_digest_events")) is int and 1 <= config["max_digest_events"] < MIN_EVENTS:
         # Upgrade the former 1–7 range without discarding other operator overrides.
         config["max_digest_events"] = MIN_EVENTS
     return validate(config, base)
 
 
-def write(path, values, base):
-    candidate = validate(values, base)
+def write_document(path, candidate):
     path = Path(path)
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     fd, pending = tempfile.mkstemp(dir=path.parent, prefix=".settings-")
@@ -67,6 +70,11 @@ def write(path, values, base):
         os.replace(pending, path)
     finally:
         Path(pending).unlink(missing_ok=True)
+
+
+def write(path, values, base):
+    candidate = validate(values, base)
+    write_document(path, candidate)
     return candidate
 
 

@@ -610,6 +610,10 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
 
     # AI 模型共享配置
     config["AI"] = _load_ai_config(config_data)
+    if market.get("enabled"):
+        from market_intelligence.model_settings import resolve
+
+        config["MARKET_AI"] = resolve(config["AI"], operator_path)
 
     # AI 分析配置
     config["AI_ANALYSIS"] = _load_ai_analysis_config(config_data)

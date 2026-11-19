@@ -16,7 +16,7 @@ import ssl
 import threading
 from urllib.parse import parse_qs, urlsplit
 
-from . import digests, operator_settings, status
+from . import digests, model_settings, operator_settings, status
 from .admin_view import render_dashboard, render_digest
 
 
@@ -70,8 +70,9 @@ def visible_values(settings):
     }
 
 
-def render(settings, token, message="", snapshot=None, *, news_url=""):
-    return render_dashboard(settings, FIELDS, token, message, snapshot, news_url=news_url)
+def render(settings, token, message="", snapshot=None, *, news_url="", model=None, model_message=""):
+    return render_dashboard(settings, FIELDS, token, message, snapshot, news_url=news_url,
+                            model=model, model_message=model_message)
 
 
 class AdminServer(ThreadingHTTPServer):
@@ -93,6 +94,15 @@ class AdminServer(ThreadingHTTPServer):
 
     def settings(self):
         return {**visible_values(self.base), **operator_settings.read(self.settings_path, self.base)}
+
+    def model(self, snapshot):
+        active = (snapshot or {}).get("model", {})
+        if not active.get("deployed_model"):
+            return {}
+        configured = model_settings.resolve({"MODEL": active["deployed_model"]}, self.settings_path)
+        return {**active, "selected_model": configured.get("MODEL"),
+                "selected_max_tokens": configured.get("MAX_TOKENS", active["max_tokens"]),
+                "selected_timeout": configured.get("TIMEOUT", active["timeout"])}
 
 
 class RedirectResponse:
@@ -197,10 +207,20 @@ class AdminRequest(RedirectResponse, BaseHTTPRequestHandler):
                     self.reply(200, status.metrics(snapshot), content_type="text/plain; version=0.0.4; charset=utf-8")
             else:
                 self.reply(200, render(self.server.settings(), self.server.token, snapshot=snapshot,
-                                       news_url=self.server.news_url))
+                                       news_url=self.server.news_url, model=self.server.model(snapshot)))
+
+    def form(self, max_fields):
+        size = int(self.headers.get("Content-Length", "0"))
+        if not 0 < size <= MAX_FORM_BYTES:
+            raise ValueError("表单长度不符")
+        values = parse_qs(self.rfile.read(size).decode(), keep_blank_values=True, max_num_fields=max_fields)
+        if not hmac.compare_digest(values.get("token", [""])[0].encode(), self.server.token.encode()):
+            self.reply(403)
+            return None
+        return values
 
     def do_POST(self):
-        if self.path != "/admin/":
+        if self.path not in ("/admin/", "/admin/model"):
             self.reply(404)
             return
         if not self.authorized():
@@ -208,13 +228,13 @@ class AdminRequest(RedirectResponse, BaseHTTPRequestHandler):
         if self.headers.get("Origin") != self.server.origin:
             self.reply(403)
             return
+        snapshot = status.read(self.server.status_path)
+        if self.path == "/admin/model":
+            self.save_model(snapshot)
+            return
         try:
-            size = int(self.headers.get("Content-Length", "0"))
-            if not 0 < size <= MAX_FORM_BYTES:
-                raise ValueError("表单长度不符")
-            form = parse_qs(self.rfile.read(size).decode(), keep_blank_values=True, max_num_fields=8)
-            if not hmac.compare_digest(form.get("token", [""])[0].encode(), self.server.token.encode()):
-                self.reply(403)
+            form = self.form(8)
+            if form is None:
                 return
             values = {key: int(form[key][0]) for key, _ in FIELDS}
             values["ignore_title_terms"] = [word for word in form["ignore_title_terms"][0].splitlines() if word.strip()]
@@ -222,12 +242,31 @@ class AdminRequest(RedirectResponse, BaseHTTPRequestHandler):
                 operator_settings.write(self.server.settings_path, values, self.server.base)
         except (ValueError, KeyError):
             self.reply(400, render(self.server.settings(), self.server.token,
-                                   "设置无效，请检查数值范围和阈值顺序。", status.read(self.server.status_path),
-                                   news_url=self.server.news_url))
+                                   "设置无效，请检查数值范围和阈值顺序。", snapshot,
+                                   news_url=self.server.news_url, model=self.server.model(snapshot)))
         else:
             self.reply(200, render(self.server.settings(), self.server.token,
-                                   "已保存，下轮任务生效。", status.read(self.server.status_path),
-                                   news_url=self.server.news_url))
+                                   "已保存，下轮任务生效。", snapshot,
+                                   news_url=self.server.news_url, model=self.server.model(snapshot)))
+
+    def save_model(self, snapshot):
+        result, message = 200, "模型设置已保存，下轮采集生效。"
+        try:
+            form = self.form(4)
+            if form is None:
+                return
+            model = self.server.model(snapshot)
+            if not model:
+                raise ValueError("等待采集容器同步模型配置")
+            values = {key: int(form[key][0]) for key, *_ in model_settings.FIELDS}
+            values["model"] = form["model"][0].strip()
+            with self.server.save_lock:
+                model_settings.write(self.server.settings_path, values, model["deployed_model"])
+        except (ValueError, KeyError, OSError):
+            result, message = 400, "无法保存。请检查模型服务商、Token 上限和超时范围。"
+        self.reply(result, render(self.server.settings(), self.server.token, snapshot=snapshot,
+                                 news_url=self.server.news_url, model=self.server.model(snapshot),
+                                 model_message=message))
 
 
 def main():
