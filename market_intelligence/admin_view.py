@@ -31,7 +31,7 @@ STYLE = """
 :root { color-scheme: dark; --bg:#10141d; --panel:#18202d; --edge:#354255;
         --text:#eef3fb; --muted:#b0bdce; --accent:#8de3f6; --good:#88e2bb; --warn:#ffcc88; }
 * { box-sizing:border-box; }
-html { scroll-padding-block-start:1rem; }
+html { scroll-padding-block-start:5rem; }
 body { margin:0; background:var(--bg); color:var(--text); font:1rem/1.55 system-ui,sans-serif; }
 a { color:var(--accent); text-underline-offset:.22em; }
 :focus-visible { outline:2px solid var(--accent); outline-offset:4px; }
@@ -43,7 +43,21 @@ a { color:var(--accent); text-underline-offset:.22em; }
 .usage-key span:nth-child(2) { color:#b9a5ff; }
 .attempt-key span:first-child { color:#74e6a6; }
 .model-usage summary { cursor:pointer; width:fit-content; }
-.top { background:var(--panel); border-block-end:1px solid var(--edge); }
+.top { background:var(--panel); border-block-end:1px solid var(--edge); position:sticky; top:0; z-index:3; }
+.workflow { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.75rem; margin:1rem 0; }
+.workflow .panel { display:grid; align-content:start; gap:.3rem; }
+.workflow h3 { display:flex; align-items:baseline; justify-content:space-between; gap:.35rem; }
+.workflow p { overflow-wrap:anywhere; }
+.channel-details { margin:.8rem 0 .15rem; }
+.channel-details summary { cursor:pointer; color:var(--accent); }
+.channels section { margin:0; }
+nav a { white-space:nowrap; }
+@media (max-width:42rem) {
+  .top { position:static; }
+  html { scroll-padding-block-start:.8rem; }
+  .workflow { grid-template-columns:1fr; }
+}
+
 .bar, main { width:min(100% - 2rem, 75rem); margin-inline:auto; }
 .bar { display:flex; align-items:center; justify-content:space-between; gap:.5rem 1.5rem;
        flex-wrap:wrap; padding-block:.75rem; }
@@ -61,7 +75,7 @@ h3 { font-size:1rem; }
 .heading p,.muted { color:var(--muted); font-size:.9rem; }
 .panel,.stats > div { background:var(--panel); border:1px solid var(--edge); border-radius:.8rem; }
 .panel { padding:clamp(.85rem,2vw,1.3rem); min-width:0; }
-.stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.75rem; margin-block-end:.75rem; }
+.stats { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.75rem; margin-block-end:.75rem; }
 .stats > div { padding:.8rem 1rem; }
 .queue-note { margin-block-end:.75rem; }
 dt { color:var(--muted); font-size:.9rem; }
@@ -117,7 +131,40 @@ def local_time(value, full=False):
     return f'<time datetime="{time.isoformat()}">{label}</time>'
 
 
-def render_overview(snapshot):
+def render_workflow(snapshot, settings):
+    sources = snapshot.get("sources", [])
+    failed = sum(failures > 0 for _, _, _, failures, _ in sources)
+    waiting = sum(attempts == 0 for _, attempts, _, _, _ in sources)
+    collection = "等待采集" if not sources else f"{failed} 个来源异常" if failed else f"{len(sources) - waiting} 个来源正常"
+    queue = snapshot.get("analysis_queue", {})
+    pending = snapshot["articles"].get("pending", 0)
+    usage = snapshot.get("model_usage", [])
+    today = usage[-1]["attempts"] if usage else None
+    daily = settings["max_articles_per_day"]
+    per_round = settings["max_articles_per_run"]
+    budget = f"今日 {today:,} / {daily:,} 次 · 每轮最多 {per_round:,} 次" if today is not None else f"每轮最多 {per_round:,} 次"
+    queued = ""
+    if pending and queue.get("oldest_at"):
+        queued = (f'<p class="muted">近 1 小时采集且待分析 {queue["last_hour"]:,} 篇 · '
+                  f'最早采集 {local_time(queue["oldest_at"])}</p>')
+    active = [channel for channel in snapshot.get("notification_channels", {}).values() if channel["enabled"]]
+    issue = sum(not channel["configured"] or bool(channel["latest"] and channel["latest"][0] == "failed")
+                for channel in active)
+    pending_delivery = snapshot.get("deliveries", {}).get("pending", 0)
+    sent = [channel["latest"][1] for channel in active if channel["latest"] and channel["latest"][0] == "delivered"]
+    latest = f"最近成功 {local_time(max(sent))}" if sent else "暂无近期成功记录"
+    return f"""<div class="workflow" aria-label="处理进度">
+<div class="panel"><h3>采集 <a href="#channels">渠道</a></h3><p class="{'warn' if failed else ''}">{collection}</p>
+<p class="muted">共 {len(sources)} 个来源{f' · {waiting} 个等待首轮' if waiting else ''}</p></div>
+<div class="panel"><h3>分析 <a href="#model">用量</a></h3><p aria-label="待分析 {pending} 篇">{pending:,} 篇待分析</p>
+<p class="muted">{budget}</p>{queued}</div>
+<div class="panel"><h3>推送 <a href="#delivery">投递</a></h3>
+<p class="{'warn' if issue else ''}">{len(active)} 个启用 · {issue} 个需关注</p>
+<p class="muted">{pending_delivery:,} 条待投递 · {latest}</p></div>
+</div>"""
+
+
+def render_overview(snapshot, settings):
     if not snapshot:
         return '<p class="panel muted">等待首轮采集生成状态快照。</p>'
     articles = snapshot["articles"]
@@ -126,7 +173,6 @@ def render_overview(snapshot):
     cards = "".join(
         f'<div><dt>{label}</dt><dd aria-label="{label} {count} {unit}">{count:,} <small>{unit}</small></dd></div>'
         for label, count, unit in (
-            ("待分析", articles.get("pending", 0), "篇"),
             ("已分析", articles.get("done", 0), "篇"),
             ("P0 / P1 事件", events.get("P0", 0) + events.get("P1", 0), "件"),
             ("成功投递", deliveries.get("delivered", 0), "条"),
@@ -144,29 +190,38 @@ def render_overview(snapshot):
     expired = articles.get("expired", 0)
     archived = (f'<p class="muted queue-note">仅存档 {excluded:,} 篇 · 已过期 {expired:,} 篇</p>'
                 if excluded or expired else "")
-    return f'<dl class="stats">{cards}</dl>{archived}<div class="panel"><h3>近 24 小时重点事件</h3>{recent}</div>'
+    return f'{render_workflow(snapshot, settings)}<dl class="stats">{cards}</dl>{archived}<div class="panel"><h3>近 24 小时重点事件</h3>{recent}</div>'
 
 
 def render_sources(snapshot):
     details = {row[0]: row[1:] for row in snapshot.get("source_details", [])}
-    rows = []
-    for feed, attempts, successes, failures, duration in snapshot.get("sources", []):
+    attention, healthy = [], []
+    for feed, attempts, successes, failures, duration in sorted(snapshot.get("sources", []),
+                                                                 key=lambda row: (-row[3], row[1] > 0, row[0])):
         name, category, last_attempt, last_success, latest = details.get(feed, (feed, "", None, None, None))
         source_type = SOURCE_TYPES.get(category, category)
         state = f"连续失败 {failures} 次" if failures else "正常" if attempts else "等待采集"
         elapsed = f"{duration:,} ms" if duration is not None else "—"
         sample = f"成功 {successes}/{attempts} 次" if attempts else "无采集记录"
-        rows.append(f'<tr><th scope="row">{escape(name)}<span class="cell-detail">{escape(source_type)}</span></th>'
+        target = attention if failures or not attempts else healthy
+        target.append(f'<tr><th scope="row">{escape(name)}<span class="cell-detail">{escape(source_type)}</span></th>'
                     f'<td><span class="tag {"warn" if failures else "good" if attempts else ""}">{state}</span>'
                     f'<span class="cell-detail">{sample} · {elapsed}</span>'
                     f'<span class="cell-detail">最近抓取 {local_time(last_attempt)}</span></td>'
                     f'<td><span class="cell-detail">成功 {local_time(last_success)}</span>'
                     f'<span class="cell-detail">发稿 {local_time(latest)}</span></td></tr>')
-    if not rows:
+    if not (attention or healthy):
         return '<p class="muted">暂无采集渠道记录。</p>'
-    return ('<div class="scroll" role="region" aria-labelledby="source-title" tabindex="0"><table>'
-            '<thead><tr><th scope="col">来源</th><th scope="col">抓取状态</th><th scope="col">最近时间</th>'
-            f'</tr></thead><tbody>{"".join(rows)}</tbody></table></div>')
+    def table(rows, label):
+        return (f'<div class="scroll" role="region" aria-label="{label}" tabindex="0"><table>'
+                '<thead><tr><th scope="col">来源</th><th scope="col">抓取状态</th><th scope="col">最近时间</th>'
+                f'</tr></thead><tbody>{"".join(rows)}</tbody></table></div>')
+
+    issues = table(attention, "异常或等待采集的来源") if attention else '<p class="good">当前无异常来源</p>'
+    if not healthy:
+        return issues
+    return (issues + f'<details class="channel-details"><summary>查看 {len(healthy)} 个正常来源</summary>'
+            + table(healthy, "正常来源") + "</details>")
 
 
 def render_notifications(snapshot):
@@ -288,13 +343,13 @@ def render_dashboard(settings, fields, token, message, snapshot, *, news_url="",
 <main>
 <section id="overview" aria-labelledby="overview-title">
 <div class="heading"><h1 id="overview-title">当前汇总</h1><p>{updated}</p></div>
-{render_overview(snapshot)}
+{render_overview(snapshot, settings)}
 </section>
 <section id="channels" aria-labelledby="channels-title">
 <div class="heading"><h2 id="channels-title">渠道</h2><a href="/admin/metrics">采集指标</a></div>
 <div class="channels">
-<div class="panel"><h3 id="source-title">RSS 采集渠道</h3>{render_sources(data)}</div>
-<div class="panel"><h3 id="delivery-title">推送渠道</h3>{render_notifications(data)}</div>
+<section class="panel" aria-labelledby="source-title"><h3 id="source-title">RSS 采集渠道</h3>{render_sources(data)}</section>
+<section class="panel" id="delivery" aria-labelledby="delivery-title"><h3 id="delivery-title">推送渠道</h3>{render_notifications(data)}</section>
 </div></section>
 <section id="model" aria-labelledby="model-title">
 <div class="heading"><h2 id="model-title">模型与用量</h2></div>
@@ -378,12 +433,23 @@ def _digest_event(event, number):
 
 
 def render_digest(edition, *, public=False):
-    from .digests import region_summary
+    from .digests import DIRECTIONS_ZH, REGION_LABELS, region_summary
 
-    navigation = ('<a href="/">RSS 新闻</a> · <a href="/digests/index.html">简报历史</a>'
+    navigation = ('<nav aria-label="简报导航"><a href="/">新闻首页</a><a href="/digests/index.html">简报历史</a></nav>'
                   if public else '<a href="/admin/">返回 TrendRadar 管理</a>')
     entries = "".join(_digest_event(event, number) for number, event in enumerate(edition["events"], 1))
     actual = len(edition["events"])
+    overview = ""
+    if actual:
+        quick_links = []
+        for number, event in enumerate(edition["events"], 1):
+            region = REGION_LABELS.get(event.get("edition_region"))
+            direction = DIRECTIONS_ZH.get(event.get("direction"), "影响不明确")
+            metadata = " · ".join(filter(None, (region, direction)))
+            quick_links.append(f'<li><a href="#event-{number}">{escape(event["title"])}</a>'
+                               f'<small class="muted">{metadata}</small></li>')
+        overview = (f'<section class="panel brief-index" aria-label="本期导读"><h2>本期导读</h2>'
+                    f'<ol>{"".join(quick_links)}</ol></section>')
     missing = max(0, edition["target"] - actual)
     status = f"收录 {actual} 条"
     if regions := region_summary(edition["events"]):
@@ -413,7 +479,12 @@ def render_digest(edition, *, public=False):
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{escape(edition['title'])} · TrendRadar</title><style>{STYLE}
 .brief {{ max-width:61rem; }}
-.brief-event {{ margin-block:1rem; overflow-wrap:anywhere; scroll-margin-block-start:1rem; }}
+.brief-event {{ margin-block:1rem; overflow-wrap:anywhere; }}
+.brief-index {{ margin-block:1rem; }}
+.brief-index ol {{ margin:.35rem 0 0; padding-inline-start:1.4rem; }}
+.brief-index li {{ padding:.32rem 0; overflow-wrap:anywhere; }}
+.brief-index small {{ display:block; }}
+.brief-event > h2 {{ font-size:clamp(1.16rem,3vw,1.4rem); }}
 .brief-event:target {{ outline:2px solid var(--accent); }}
 .brief-event h3 {{ margin-block:.85rem .15rem; color:var(--accent); }}
 .brief-event ul {{ margin-block:0; padding-inline-start:1.3rem; }}
@@ -422,4 +493,4 @@ def render_digest(edition, *, public=False):
 <header class="top"><div class="bar">{navigation}</div></header>
 <main class="brief"><h1>{escape(edition['title'])}</h1>
 <p class="muted">{local_time(edition['created_at'], full=True)} · 北京时间 · {status}</p>
-{context}{entries}{closing}</main></body></html>""".encode()
+{overview}{context}{entries}{closing}</main></body></html>""".encode()

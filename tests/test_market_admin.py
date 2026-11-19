@@ -105,7 +105,9 @@ def test_network_access_uses_peer_and_origin_for_password_free_admin(tmp_path):
     state = tmp_path / "settings.json"
     snapshot = tmp_path / "status.json"
     snapshot.write_text(json.dumps({
-        "updated_at": "2026-11-19T15:00:00+08:00", "articles": {},
+        "updated_at": "2026-11-19T15:00:00+08:00", "articles": {"pending": 4},
+        "analysis_queue": {"oldest_at": "2026-11-19T12:00:00+08:00", "last_hour": 3},
+        "sources": [["good-feed", 5, 5, 0, 25], ["failed-feed", 5, 2, 3, 400]],
         "model": {"deployed_model": "openai/original", "model": "openai/original",
                   "endpoint_host": "api.example.net", "max_tokens": 5000, "timeout": 120,
                   "analysis_enabled": True, "credential_configured": True},
@@ -134,6 +136,9 @@ def test_network_access_uses_peer_and_origin_for_password_free_admin(tmp_path):
         code, headers, body = request("GET", "/admin/")
         assert code == 200 and "WWW-Authenticate" not in headers
         assert f'href="{public}"' in body
+        assert "1 个来源异常" in body and "查看 1 个正常来源" in body
+        assert body.index("failed-feed") < body.index("good-feed")
+        assert "近 1 小时采集且待分析 3 篇" in body and "今日 2 / 250 次" in body
         assert "模型与用量" in body and 'value="openai/original"' in body
         assert 'aria-label="最近 7 天输入和输出 Token"' in body and "api.example.net" in body
         assert request("GET", "/admin/", headers={"Host": "foreign.example"})[0] == 403
