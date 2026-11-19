@@ -49,6 +49,8 @@ def public_edition(edition):
     return {
         "id": edition["id"], "title": edition["title"], "created_at": edition["created_at"],
         "target": edition["target"], "closing": edition.get("closing", []),
+        "market_context": [{**item, "url": url} for item in edition.get("market_context", [])
+                           if (url := external_url(item["url"]))],
         "events": [
             {**{key: event[key] for key in (
                 "title", "summary", "topic", "tier", "heat", "priority", "score", "verification",

@@ -1040,6 +1040,8 @@ class NewsAnalyzer:
                     enabled=feed_config.get("enabled", True),
                     max_age_days=max_age_days,  # None=使用全局，0=禁用，>0=覆盖
                     article_path_pattern=feed_config.get("article_path_pattern", ""),
+                    article_title_pattern=feed_config.get("article_title_pattern", ""),
+                    expand_questions=feed_config.get("expand_questions", False),
                     proxy_url=(os.getenv("MARKET_INTERNATIONAL_PROXY") or feed_config.get("proxy_url"))
                     if feed_config.get("category", "").startswith("international_")
                     else feed_config.get("proxy_url"),
