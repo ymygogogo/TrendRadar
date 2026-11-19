@@ -188,3 +188,52 @@ def test_same_named_speech_keeps_one_slot_and_both_sources(tmp_path):
         }
     finally:
         engine.close()
+
+
+def test_digest_reserves_international_events_and_shows_original_sources(tmp_path):
+    from market_intelligence.admin_view import render_digest
+    from market_intelligence.public_site import public_edition
+
+    config = {"database_path": str(tmp_path / "market.db"), "digest": {
+        "min_international_events": 2, "publisher_groups": {"BBC": ["bbc-world", "bbc-business"]},
+    }}
+    engine = MarketIntelligence(config, {}, now=lambda: NOW)
+    try:
+        for index in range(8):
+            add_event(engine.db, f"domestic-{index}", 82, 0.1, title=(
+                "国际外交峰会" if index == 0 else "半导体设备进展" if index == 1 else "原油价格变化"))
+        add_event(engine.db, "bbc", 75, 0.9)
+        add_event(engine.db, "guardian", 75, 2)
+        add_event(engine.db, "already-sent", 90, 1.5)
+        sources = {
+            "bbc-world": ("BBC World", "https://www.bbc.co.uk", "bbc"),
+            "bbc-business": ("BBC Business", "https://www.bbc.com", "bbc"),
+            "guardian-world": ("The Guardian", "https://www.theguardian.com", "guardian"),
+            "aj": ("Al Jazeera", "https://www.aljazeera.com", "already-sent"),
+        }
+        with engine.db:
+            for feed_id, (name, url, event_id) in sources.items():
+                engine.db.execute("INSERT INTO feed_health(feed_id,name,category,url,last_attempt) VALUES (?,?,?,?,?)",
+                                  (feed_id, name, "international_media", url, NOW.isoformat()))
+                stamp = engine.db.execute("SELECT updated_at FROM events WHERE id=?", (event_id,)).fetchone()[0]
+                engine.db.execute("""INSERT INTO articles(id,feed_id,title,url,collected_at,event_id)
+                    VALUES (?,?,?,?,?,?)""", (feed_id, feed_id, "Oil prices", url + "/news", stamp, event_id))
+            engine.db.execute("INSERT INTO digest_entries VALUES ('digest:previous','already-sent',1)")
+            engine.db.execute("INSERT INTO deliveries VALUES ('digest:previous',1,'wework','delivered',1,?,NULL)",
+                              (NOW.isoformat(),))
+        edition = digests.make_edition(engine, KEY, NOW, NOW - timedelta(hours=1), "热点新闻简报")
+        events = edition["events"]
+        assert len(events) == 8 and {event["topic"] for event in events} == {"world", "tech", "economy"}
+        assert events[-1]["event_id"] == "guardian" and events[-1]["tier"] == "watch"
+        assert "already-sent" not in {event["event_id"] for event in events}
+        bbc = next(event for event in events if event["event_id"] == "bbc")
+        assert len([source for source in bbc["sources"] if source["name"] == "BBC"]) == 1
+        page = render_digest(public_edition(edition), public=True).decode()
+        assert "BBC（海外）" in page and "The Guardian（海外）" in page
+        assert "https://www.theguardian.com/news" in page
+        assert digests.digest_message(edition).count(" · 海外") == 2
+        disabled = {**config, "digest": {**config["digest"], "min_international_events": 0}}
+        unreserved = digests.select_events(engine.db, disabled, [], NOW, NOW - timedelta(hours=1))
+        assert len(unreserved) == 8 and all(event["tier"] == "main" for event in unreserved)
+    finally:
+        engine.close()
