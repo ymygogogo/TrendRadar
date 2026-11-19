@@ -402,3 +402,35 @@ def test_analysis_admission_filters_at_ingest_and_rechecks_existing_pending(tmp_
         }
     finally:
         engine.close()
+
+
+def test_model_usage_records_reported_tokens_even_when_analysis_json_is_invalid(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from market_intelligence.status import snapshot, publish_current
+    from trendradar.ai.client import AIClient
+
+    response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="malformed JSON"))],
+                               usage={"prompt_tokens": 100, "completion_tokens": 37})
+    monkeypatch.setattr("trendradar.ai.client.completion", lambda **_: response)
+    ai = {"MODEL": "openai/test-model", "API_KEY": "test-only-secret", "API_BASE": "https://api.example.net/v1"}
+    cfg = settings(tmp_path)
+    engine = MarketIntelligence(cfg, {"AI": ai, "MARKET_AI": ai}, client=AIClient(ai), now=lambda: NOW)
+    try:
+        from trendradar.storage.base import RSSItem
+
+        article = RSSItem("Chip launch", "test", url="https://example.net/chip", published_at=NOW.isoformat())
+        engine.ingest(SimpleNamespace(items={"test": [article]}))
+        engine.analyze_pending()
+        [sample] = list(engine.db.execute("SELECT model,input_tokens,output_tokens FROM model_usage"))
+        assert tuple(sample) == ("openai/test-model", 100, 37)
+        day = snapshot(engine.db, NOW)["model_usage"][-1]
+        assert (day["attempts"], day["input_tokens"], day["output_tokens"]) == (1, 100, 37)
+        assert snapshot(engine.db, NOW)["model_usage"][0]["input_tokens"] is None
+        dest = tmp_path / "status.json"
+        monkeypatch.setenv("MARKET_STATUS_PATH", str(dest))
+        publish_current(engine)
+        assert "test-only-secret" not in dest.read_text()
+        assert json.loads(dest.read_text())["model"]["endpoint_host"] == "api.example.net"
+    finally:
+        engine.close()

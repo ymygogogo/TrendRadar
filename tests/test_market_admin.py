@@ -103,8 +103,17 @@ def test_network_access_uses_peer_and_origin_for_password_free_admin(tmp_path):
     origin = "https://tr.yumy.space"
     public = "https://news.yumy.space/"
     state = tmp_path / "settings.json"
+    snapshot = tmp_path / "status.json"
+    snapshot.write_text(json.dumps({
+        "updated_at": "2026-11-19T15:00:00+08:00", "articles": {},
+        "model": {"deployed_model": "openai/original", "model": "openai/original",
+                  "endpoint_host": "api.example.net", "max_tokens": 5000, "timeout": 120,
+                  "analysis_enabled": True, "credential_configured": True},
+        "model_usage": [{"date": "2026-11-19", "attempts": 2, "input_tokens": 500, "output_tokens": 57,
+                         "input_samples": 1, "output_samples": 1, "responses": 1}],
+    }))
     server = AdminServer(("127.0.0.1", 0), {}, state, tmp_path / "missing-password.json", origin,
-                         news_url=public, trusted_networks=["127.0.0.1/32"])
+                         snapshot, news_url=public, trusted_networks=["127.0.0.1/32"])
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
 
@@ -125,6 +134,8 @@ def test_network_access_uses_peer_and_origin_for_password_free_admin(tmp_path):
         code, headers, body = request("GET", "/admin/")
         assert code == 200 and "WWW-Authenticate" not in headers
         assert f'href="{public}"' in body
+        assert "模型与用量" in body and 'value="openai/original"' in body
+        assert 'aria-label="最近 7 天输入和输出 Token"' in body and "api.example.net" in body
         assert request("GET", "/admin/", headers={"Host": "foreign.example"})[0] == 403
         spoofed = {"X-Forwarded-For": "127.0.0.1", "X-Real-IP": "127.0.0.1"}
         for route in ("/admin/", "/admin/metrics", "/admin/digests/" + "a" * 24):
@@ -138,6 +149,18 @@ def test_network_access_uses_peer_and_origin_for_password_free_admin(tmp_path):
         assert not state.exists()
         assert request("POST", "/admin/", headers={"Origin": origin}, data=data)[0] == 200
         assert json.loads(state.read_text())["ignore_title_terms"] == ["饭圈"]
+        headers = {"Origin": origin}
+        model = {"token": server.token, "model": "openai/replacement", "max_tokens": 6000, "timeout": 90}
+        assert request("POST", "/admin/model", headers=headers, data=urlencode({**model, "model": "other/replacement"}))[0] == 400
+        assert request("POST", "/admin/model", headers={"Origin": public.rstrip("/")}, data=urlencode(model))[0] == 403
+        assert not state.with_name("model.json").exists()
+        code, _, result = request("POST", "/admin/model", headers=headers, data=urlencode(model))
+        assert code == 200 and 'value="openai/replacement"' in result
+        assert json.loads(state.read_text())["ignore_title_terms"] == ["饭圈"]
+        from market_intelligence.model_settings import resolve
+        base = {"MODEL": "openai/original", "API_KEY": "private-secret", "API_BASE": "https://api.example.net/v1"}
+        assert resolve(base, state) == {**base, "MODEL": "openai/replacement", "MAX_TOKENS": 6000, "TIMEOUT": 90}
+        assert "private-secret" not in state.with_name("model.json").read_text()
     finally:
         server.shutdown()
         server.server_close()

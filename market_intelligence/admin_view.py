@@ -3,6 +3,8 @@ from datetime import datetime
 from html import escape
 from zoneinfo import ZoneInfo
 
+from .model_settings import FIELDS as MODEL_FIELDS
+
 
 CHANNEL_NAMES = {
     "bark": "Bark",
@@ -33,6 +35,14 @@ html { scroll-padding-block-start:1rem; }
 body { margin:0; background:var(--bg); color:var(--text); font:1rem/1.55 system-ui,sans-serif; }
 a { color:var(--accent); text-underline-offset:.22em; }
 :focus-visible { outline:2px solid var(--accent); outline-offset:4px; }
+.model-usage { margin-top:1rem; }
+.usage-chart { display:block; width:100%; min-height:8rem; }
+.usage-chart text { fill:#b7c5da; font:13px system-ui,sans-serif; }
+.usage-key { display:flex; gap:1rem; flex-wrap:wrap; }
+.usage-key span:first-child { color:#55d9f0; }
+.usage-key span:nth-child(2) { color:#b9a5ff; }
+.attempt-key span:first-child { color:#74e6a6; }
+.model-usage summary { cursor:pointer; width:fit-content; }
 .top { background:var(--panel); border-block-end:1px solid var(--edge); }
 .bar, main { width:min(100% - 2rem, 75rem); margin-inline:auto; }
 .bar { display:flex; align-items:center; justify-content:space-between; gap:.5rem 1.5rem;
@@ -183,7 +193,77 @@ def render_notifications(snapshot):
             f'<th scope="col">投递记录</th></tr></thead><tbody>{"".join(rows)}</tbody></table></div>')
 
 
-def render_dashboard(settings, fields, token, message, snapshot, *, news_url=""):
+def _usage_chart(rows, series, title):
+    values = [row[key] for row in rows for key, _ in series if row.get(key) is not None]
+    if not values:
+        return '<p class="muted">等待模型返回 Token 用量。</p>'
+    peak = max(1, max(values))
+    lines = []
+    for key, color in series:
+        segment = []
+        for index, row in enumerate(rows):
+            x = 52 + index * (540 / max(1, len(rows) - 1))
+            value = row.get(key)
+            if value is None:
+                if segment:
+                    lines.append(f'<polyline fill="none" stroke="{color}" stroke-width="3" points="{" ".join(segment)}"/>')
+                    segment = []
+                continue
+            y = 132 - value / peak * 100
+            segment.append(f"{x:.1f},{y:.1f}")
+            lines.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3.5" fill="{color}"/>')
+        if segment:
+            lines.append(f'<polyline fill="none" stroke="{color}" stroke-width="3" points="{" ".join(segment)}"/>')
+    dates = "".join(
+        f'<text x="{52 + i * (540 / max(1, len(rows)-1)):.1f}" y="155" text-anchor="middle">{escape(row["date"][5:])}</text>'
+        for i, row in enumerate(rows))
+    return (f'<svg viewBox="0 0 620 172" role="img" aria-label="{escape(title)}" class="usage-chart">'
+            '<path d="M52 32H592M52 82H592M52 132H592" stroke="#354255"/>'
+            f'<text x="50" y="24">{peak:,}</text><text x="30" y="135">0</text>{"".join(lines)}{dates}</svg>')
+
+
+def render_model(model, usage, token, message):
+    note = f'<p class="message" role="status">{escape(message)}</p>' if message else ""
+    if model:
+        numbers = "".join(
+            f'<label>{label}<input name="{key}" type="number" min="{minimum}" max="{maximum}" '
+            f'required value="{int(model["selected_" + key])}"></label>'
+            for key, label, minimum, maximum in MODEL_FIELDS
+        )
+        state = "已配置" if model["credential_configured"] else "缺少凭据"
+        enabled = "已启用" if model["analysis_enabled"] else "已关闭"
+        host = escape(model["endpoint_host"]) or "服务商默认地址"
+        configuration = f"""<form action="/admin/model#model" method="post" class="panel">
+<p class="muted">最近运行使用 <strong>{escape(model['model'])}</strong> · {host} · 凭据{state} · 分析{enabled}</p>
+{note}<input name="token" type="hidden" value="{escape(token)}">
+<div class="form-grid"><label>模型标识<input type="text" name="model" maxlength="128"
+ required value="{escape(model['selected_model'])}"></label>{numbers}</div>
+<p class="muted">同一服务商下的模型变更从下轮采集生效。服务地址和凭据由部署环境管理。</p>
+<button>保存模型配置</button></form>"""
+    else:
+        configuration = f'<div class="panel">{note}<p class="muted">等待采集容器同步模型配置。</p></div>'
+    if not usage:
+        return configuration
+    token_chart = _usage_chart(usage, (("input_tokens", "#55d9f0"), ("output_tokens", "#b9a5ff")), "最近 7 天输入和输出 Token")
+    attempts = _usage_chart(usage, (("attempts", "#74e6a6"),), "最近 7 天分析尝试次数")
+    def count(value):
+        return f"{value:,}" if value is not None else "—"
+    table = "".join(
+        f'<tr><th scope="row">{escape(row["date"])}</th><td>{count(row["attempts"])}</td>'
+        f'<td>{count(row["input_tokens"])}</td><td>{count(row["output_tokens"])}</td>'
+        f'<td>{row["input_samples"]}/{row["responses"]} · {row["output_samples"]}/{row["responses"]}</td></tr>'
+        for row in usage)
+    return configuration + f"""<div class="panel model-usage">
+<h3>模型用量 · 最近 7 天</h3>
+<div class="channels"><div><p class="usage-key"><span>输入 Token</span><span>输出 Token</span></p>{token_chart}</div>
+<div><p class="usage-key attempt-key"><span>分析尝试次数</span></p>{attempts}</div></div>
+<p class="muted">Token 来自模型响应。空白表示未采集到用量。分析尝试包含失败重试。</p>
+<details><summary>查看每日用量</summary><div class="scroll"><table>
+<thead><tr><th>北京时间</th><th>尝试</th><th>输入 Token</th><th>输出 Token</th><th>有用量的响应（输入 · 输出）</th></tr></thead>
+<tbody>{table}</tbody></table></div></details></div>"""
+
+
+def render_dashboard(settings, fields, token, message, snapshot, *, news_url="", model=None, model_message=""):
     data = snapshot or {}
     numbers = "".join(
         f'<label>{label}<input name="{key}" type="number" required value="{int(settings[key])}"></label>'
@@ -202,7 +282,7 @@ def render_dashboard(settings, fields, token, message, snapshot, *, news_url="")
 <header class="top"><div class="bar">
 <span class="brand">TrendRadar 管理</span>
 <nav aria-label="页面导航">
-<a href="#overview">总览</a><a href="#channels">渠道</a><a href="#settings">设置</a>
+<a href="#overview">总览</a><a href="#channels">渠道</a><a href="#model">模型与用量</a><a href="#settings">设置</a>
 <a href="{escape(news_url or "/news/")}">新闻报告</a>
 </nav></div></header>
 <main>
@@ -216,6 +296,10 @@ def render_dashboard(settings, fields, token, message, snapshot, *, news_url="")
 <div class="panel"><h3 id="source-title">RSS 采集渠道</h3>{render_sources(data)}</div>
 <div class="panel"><h3 id="delivery-title">推送渠道</h3>{render_notifications(data)}</div>
 </div></section>
+<section id="model" aria-labelledby="model-title">
+<div class="heading"><h2 id="model-title">模型与用量</h2></div>
+{render_model(model or {}, data.get("model_usage", []), token, model_message)}
+</section>
 <section id="settings" aria-labelledby="settings-title">
 <div class="heading"><h2 id="settings-title">运行设置</h2><p>保存后从下一轮任务生效。</p></div>
 {note}
