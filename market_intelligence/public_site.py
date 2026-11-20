@@ -11,7 +11,8 @@ from ipaddress import ip_address
 import os
 from pathlib import Path
 import re
-from urllib.parse import parse_qsl, urlencode, urlsplit
+from unicodedata import normalize
+from urllib.parse import parse_qsl, unquote, urlencode, urlsplit
 
 import requests
 
@@ -376,6 +377,37 @@ def hotlist_groups(results, names, settings):
     return groups
 
 
+def _unique_home_groups(groups):
+    from .engine import canonical_url
+
+    seen_urls = set()
+    seen_yahoo = set()
+    output = []
+    for group in groups:
+        titles = []
+        for article in group["titles"]:
+            url = external_url(article.get("url", ""))
+            if not url or not article.get("title"):
+                continue
+            key = canonical_url(url)
+            if key in seen_urls:
+                continue
+            seen_urls.add(key)
+            parts = urlsplit(key)
+            if parts.hostname in {"tw.stock.yahoo.com", "tw.news.yahoo.com"}:
+                story = re.fullmatch(r"/(?:news/)?([^/]+)-[0-9]{9}\.html", unquote(parts.path))
+                if story:
+                    title = " ".join(normalize("NFKC", article["title"]).casefold().split())
+                    yahoo_key = (story[1].casefold(), title)
+                    if yahoo_key in seen_yahoo:
+                        continue
+                    seen_yahoo.add(yahoo_key)
+            titles.append(article)
+        if titles:
+            output.append({**group, "titles": titles})
+    return output
+
+
 def _home_views(current, new, mode, today, hotlist):
     recent, all_groups = rss_groups(current, new, mode)
     active = "today" if today else "all" if mode != "incremental" and not recent and all_groups else "recent"
@@ -384,7 +416,7 @@ def _home_views(current, new, mode, today, hotlist):
     if mode != "incremental":
         views.append(("all", "今日全部" if mode == "daily" else "当前全部", all_groups))
     views.append(("hot", "热点榜单", hotlist))
-    return active, views
+    return active, [(view, label, _unique_home_groups(groups)) for view, label, groups in views]
 
 
 def foreign_headlines(current, new, mode, *, today, hotlist):
