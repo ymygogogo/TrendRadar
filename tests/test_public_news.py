@@ -94,7 +94,9 @@ def test_home_exposes_regions_and_latest_brief_with_stable_event_links():
         {"title": "Chip launch", "url": "https://example.net/en", "source_id": "en", "source_name": "BBC"},
     ]}]
     brief = {"id": "b" * 24, "title": "最新一期", "created_at": NOW.isoformat(), "events": [
-        {"title": "<国内三条>", "edition_region": "domestic"},
+        {"title": "<国内三条>", "edition_region": "domestic", "summary": "<摘要>",
+         "direction": "potential_positive", "impact": "产能扩张可能影响订单",
+         "follow_up_signals": ["查看下季订单"]},
         {"title": "国内二", "edition_region": "domestic"},
         {"title": "国内三", "edition_region": "domestic"},
         {"title": "海外一", "edition_region": "international"},
@@ -105,6 +107,10 @@ def test_home_exposes_regions_and_latest_brief_with_stable_event_links():
     assert 'data-region="domestic"' in page and 'data-region="international"' in page
     assert "搜索原文、中文参考或来源" in page and "最新一期" in page and "&lt;国内三条&gt;" in page
     assert f'/digests/{brief["id"]}.html#event-4' in page and "国内 3 条 · 海外 1 条" in page
+    assert "本期 AI 要点" in page and "查看全部 4 条" in page
+    assert "事件摘要</dt><dd>&lt;摘要&gt;" in page
+    assert "AI 研判 · 潜在利好" in page and "产能扩张可能影响订单" in page
+    assert "后续观察" in page and "查看下季订单" in page
 
 
 def test_today_news_uses_shanghai_publication_date_and_preserves_previous_rounds(tmp_path):
