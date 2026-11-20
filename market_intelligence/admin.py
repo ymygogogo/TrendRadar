@@ -16,7 +16,7 @@ import ssl
 import threading
 from urllib.parse import parse_qs, urlsplit
 
-from . import digests, model_settings, notification_settings, operator_settings, status
+from . import digests, manual_digest, model_settings, notification_settings, operator_settings, status
 from .admin_view import render_dashboard, render_digest
 
 
@@ -71,10 +71,10 @@ def visible_values(settings):
 
 
 def render(settings, token, message="", snapshot=None, *, news_url="", model=None, model_message="",
-           notification=None, notification_message=""):
+           notification=None, notification_message="", manual_push=None):
     return render_dashboard(settings, FIELDS, token, message, snapshot, news_url=news_url,
                             model=model, model_message=model_message, notification=notification,
-                            notification_message=notification_message)
+                            notification_message=notification_message, manual_push=manual_push)
 
 
 class AdminServer(ThreadingHTTPServer):
@@ -202,11 +202,11 @@ class AdminRequest(RedirectResponse, BaseHTTPRequestHandler):
                     self.reply(404)
                 else:
                     self.reply(200, render_digest(edition))
-        elif self.path not in ("/admin/", "/admin/metrics"):
+        elif path not in ("/admin/", "/admin/metrics"):
             self.reply(404)
         elif self.authorized():
             snapshot = status.read(self.server.status_path)
-            if self.path == "/admin/metrics":
+            if path == "/admin/metrics":
                 if snapshot is None:
                     self.reply(503)
                 else:
@@ -215,10 +215,18 @@ class AdminRequest(RedirectResponse, BaseHTTPRequestHandler):
                 self.dashboard(snapshot)
 
     def dashboard(self, snapshot, code=200, *, message="", model_message="", notification_message=""):
+        manual_push = None
+        if self.server.status_path:
+            manual_push = {
+                **manual_digest.current(self.server.settings_path, self.server.status_path),
+                "ticket": secrets.token_hex(16),
+                "channels_ready": [name for name, info in (snapshot or {}).get("notification_channels", {}).items()
+                                   if info.get("configured") and info.get("enabled")],
+            }
         self.reply(code, render(self.server.settings(), self.server.token, message, snapshot,
                                 news_url=self.server.news_url, model=self.server.model(snapshot),
                                 notification=self.server.notification(), model_message=model_message,
-                                notification_message=notification_message))
+                                notification_message=notification_message, manual_push=manual_push))
 
     def form(self, max_fields):
         size = int(self.headers.get("Content-Length", "0"))
@@ -231,7 +239,7 @@ class AdminRequest(RedirectResponse, BaseHTTPRequestHandler):
         return values
 
     def do_POST(self):
-        if self.path not in ("/admin/", "/admin/model", "/admin/notifications"):
+        if self.path not in ("/admin/", "/admin/model", "/admin/notifications", "/admin/notifications/send-now"):
             self.reply(404)
             return
         if not self.authorized():
@@ -242,6 +250,9 @@ class AdminRequest(RedirectResponse, BaseHTTPRequestHandler):
         snapshot = status.read(self.server.status_path)
         if self.path == "/admin/model":
             self.save_model(snapshot)
+            return
+        if self.path == "/admin/notifications/send-now":
+            self.queue_manual_digest(snapshot)
             return
         if self.path == "/admin/notifications":
             self.save_notifications(snapshot)
@@ -258,6 +269,26 @@ class AdminRequest(RedirectResponse, BaseHTTPRequestHandler):
             self.dashboard(snapshot, 400, message="设置无效，请检查数值范围和阈值顺序。")
         else:
             self.dashboard(snapshot, message="已保存，下轮任务生效。")
+
+    def queue_manual_digest(self, snapshot):
+        try:
+            form = self.form(2)
+            if form is None:
+                return
+            if not self.server.status_path or not any(
+                info.get("configured") and info.get("enabled")
+                for info in (snapshot or {}).get("notification_channels", {}).values()
+            ):
+                self.dashboard(snapshot, 409, notification_message="还没有可用的推送渠道。")
+                return
+            with self.server.save_lock:
+                manual_digest.enqueue(self.server.settings_path, self.server.status_path, form["request_id"][0])
+        except (ValueError, KeyError):
+            self.dashboard(snapshot, 400, notification_message="推送请求无效，请刷新页面。")
+        except OSError:
+            self.dashboard(snapshot, 500, notification_message="暂时无法提交推送请求。")
+        else:
+            self.redirect("/admin/#push-settings")
 
     def save_model(self, snapshot):
         result, message = 200, "模型设置已保存，下轮采集生效。"

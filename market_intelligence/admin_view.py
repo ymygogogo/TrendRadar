@@ -34,14 +34,37 @@ STYLE = THEME + """
 html { scroll-padding-block-start:5rem; }
 body { margin:0; background:var(--bg); color:var(--text); font:1rem/1.55 var(--font); }
 a { color:var(--accent); text-underline-offset:.22em; }
-.model-usage { margin-top:1rem; }
-.usage-chart { display:block; width:100%; min-height:8rem; }
-.usage-chart text { fill:#b7c5da; font:13px system-ui,sans-serif; }
-.usage-key { display:flex; gap:1rem; flex-wrap:wrap; }
-.usage-key span:first-child { color:#55d9f0; }
-.usage-key span:nth-child(2) { color:#b9a5ff; }
-.attempt-key span:first-child { color:#74e6a6; }
-.model-usage summary { cursor:pointer; width:fit-content; }
+.model-usage { margin-top:1rem; background:linear-gradient(155deg,#132537 0%,var(--surface) 60%); }
+.usage-heading { display:flex; justify-content:space-between; align-items:baseline; gap:.5rem; flex-wrap:wrap; margin-bottom:.95rem; }
+.usage-heading h3 { font-size:1.12rem; }
+.usage-window { color:var(--muted); font-size:.8rem; }
+.usage-cards { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.7rem; }
+.usage-card { padding:.88rem .95rem .66rem; border:1px solid var(--edge); border-radius:.75rem; min-width:0;
+  background:#0a1724; box-shadow:inset 0 1px 0 #b4e8ff12; }
+.usage-card h4 { margin:0; color:var(--metric); font-size:.85rem; font-weight:650; }
+.usage-value { margin:.14rem 0; font-size:clamp(1.28rem,2.8vw,1.85rem); font-weight:740; line-height:1.25;
+  letter-spacing:-.035em; font-variant-numeric:tabular-nums; }
+.usage-latest { color:var(--muted); font-size:.78rem; font-variant-numeric:tabular-nums; }
+.usage-chart { display:block; width:100%; margin-top:.5rem; }
+.usage-chart text { fill:var(--muted); font:10px system-ui,sans-serif; font-variant-numeric:tabular-nums; }
+.usage-chart .measure { fill:var(--metric); }
+.usage-chart .absent { fill:var(--edge); }
+.usage-chart .guide { stroke:var(--edge-soft); }
+.usage-footer { margin:.85rem 0 .2rem; }
+.model-usage summary { cursor:pointer; width:fit-content; color:var(--accent); }
+.manual-push { display:flex; flex-wrap:wrap; justify-content:space-between; gap:.7rem 1.5rem; align-items:center; margin-bottom:.75rem; }
+.manual-push h3 { margin:0 0 .22rem; }
+.manual-push form { display:flex; align-items:center; gap:.65rem; flex-wrap:wrap; }
+.manual-push .manual-result { flex-basis:100%; border-top:1px solid var(--edge-soft); padding-top:.7rem; }
+.manual-push button:disabled { opacity:.55; cursor:default; }
+@media (max-width:42rem) {
+  .usage-cards { grid-template-columns:1fr; }
+  .usage-card { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:0 .6rem; align-items:baseline; }
+  .usage-card h4 { grid-column:1/-1; }
+  .usage-value { grid-column:1; }
+  .usage-latest { grid-column:2; }
+  .usage-chart { grid-column:1/-1; max-height:5.25rem; }
+}
 .top { background:var(--header); border-block-end:1px solid var(--edge-soft); position:sticky; top:0; z-index:3; }
 .workflow { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.75rem; margin:1rem 0; }
 .workflow .panel { display:grid; align-content:start; gap:.35rem; border-top:2px solid var(--edge); }
@@ -121,7 +144,6 @@ button { background:var(--accent); color:var(--accent-ink); border:0; border-rad
 .notify-form input[type=checkbox] { width:1rem; height:1rem; margin:0; }
 
 .notify-form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); column-gap:1.35rem; }
-.notify-form .message { grid-column:1/-1; }
 .notify-form .form-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
 .notify-form button { grid-column:1/-1; justify-self:start; }
 .notify-form fieldset + fieldset { border-top:0; border-inline-start:1px solid var(--edge-soft); padding:0 0 0 1.35rem; }
@@ -336,33 +358,33 @@ def render_notifications(snapshot):
             f'<th scope="col">投递记录</th></tr></thead><tbody>{"".join(rows)}</tbody></table></div>')
 
 
-def _usage_chart(rows, series, title):
-    values = [row[key] for row in rows for key, _ in series if row.get(key) is not None]
-    if not values:
-        return '<p class="muted">等待模型返回 Token 用量。</p>'
-    peak = max(1, max(values))
-    lines = []
-    for key, color in series:
-        segment = []
-        for index, row in enumerate(rows):
-            x = 52 + index * (540 / max(1, len(rows) - 1))
-            value = row.get(key)
-            if value is None:
-                if segment:
-                    lines.append(f'<polyline fill="none" stroke="{color}" stroke-width="3" points="{" ".join(segment)}"/>')
-                    segment = []
-                continue
-            y = 132 - value / peak * 100
-            segment.append(f"{x:.1f},{y:.1f}")
-            lines.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3.5" fill="{color}"/>')
-        if segment:
-            lines.append(f'<polyline fill="none" stroke="{color}" stroke-width="3" points="{" ".join(segment)}"/>')
-    dates = "".join(
-        f'<text x="{52 + i * (540 / max(1, len(rows)-1)):.1f}" y="155" text-anchor="middle">{escape(row["date"][5:])}</text>'
-        for i, row in enumerate(rows))
-    return (f'<svg viewBox="0 0 620 172" role="img" aria-label="{escape(title)}" class="usage-chart">'
-            '<path d="M52 32H592M52 82H592M52 132H592" stroke="#354255"/>'
-            f'<text x="50" y="24">{peak:,}</text><text x="30" y="135">0</text>{"".join(lines)}{dates}</svg>')
+def _usage_number(value):
+    return f"{value:,}" if value is not None else "—"
+
+
+def _usage_card(rows, key, label, color):
+    values = [row[key] for row in rows if row[key] is not None]
+    total = _usage_number(sum(values) if values else None)
+    latest = _usage_number(rows[-1][key])
+    peak = max(1, *values) if values else 1
+    step = 252 / len(rows)
+    marks = []
+    for index, row in enumerate(rows):
+        center = 4 + step * (index + .5)
+        value = row[key]
+        height = max(2, value / peak * 42) if value is not None else 2
+        full_date = escape(row["date"])
+        kind = "measure" if value is not None else "absent"
+        opacity = "1" if index == len(rows) - 1 else ".62"
+        marks.append(
+            f'<g><title>{full_date} · {escape(label)} {_usage_number(value)}</title>'
+            f'<rect class="{kind}" x="{center - 8:.1f}" y="{49 - height:.1f}" width="16" height="{height:.1f}" '
+            f'rx="2" opacity="{opacity}"/></g><text x="{center:.1f}" y="65" text-anchor="middle">{full_date[5:]}</text>'
+        )
+    return (f'<article class="usage-card" style="--metric:{color}"><h4>{label}</h4>'
+            f'<p class="usage-value">{total}</p><p class="usage-latest">今日 {latest}</p>'
+            f'<svg viewBox="0 0 260 69" class="usage-chart" role="img" aria-label="最近 7 天{label}">'
+            f'<path class="guide" d="M4 7H256M4 28H256M4 49H256" fill="none"/>{"".join(marks)}</svg></article>')
 
 
 def render_model(model, usage, token, message):
@@ -387,26 +409,56 @@ def render_model(model, usage, token, message):
         configuration = f'<div class="panel">{note}<p class="muted">等待采集容器同步模型配置。</p></div>'
     if not usage:
         return configuration
-    token_chart = _usage_chart(usage, (("input_tokens", "#55d9f0"), ("output_tokens", "#b9a5ff")), "最近 7 天输入和输出 Token")
-    attempts = _usage_chart(usage, (("attempts", "#74e6a6"),), "最近 7 天分析尝试次数")
-    def count(value):
-        return f"{value:,}" if value is not None else "—"
+    cards = "".join(_usage_card(usage, key, label, color) for key, label, color in (
+        ("input_tokens", "输入 Token", "#55d9f0"),
+        ("output_tokens", "输出 Token", "#b9a5ff"),
+        ("attempts", "分析尝试", "#74e6a6"),
+    ))
     table = "".join(
-        f'<tr><th scope="row">{escape(row["date"])}</th><td>{count(row["attempts"])}</td>'
-        f'<td>{count(row["input_tokens"])}</td><td>{count(row["output_tokens"])}</td>'
+        f'<tr><th scope="row">{escape(row["date"])}</th><td>{_usage_number(row["attempts"])}</td>'
+        f'<td>{_usage_number(row["input_tokens"])}</td><td>{_usage_number(row["output_tokens"])}</td>'
         f'<td>{row["input_samples"]}/{row["responses"]} · {row["output_samples"]}/{row["responses"]}</td></tr>'
         for row in usage)
     return configuration + f"""<div class="panel model-usage">
-<h3>模型用量 · 最近 7 天</h3>
-<div class="channels"><div><p class="usage-key"><span>输入 Token</span><span>输出 Token</span></p>{token_chart}</div>
-<div><p class="usage-key attempt-key"><span>分析尝试次数</span></p>{attempts}</div></div>
-<p class="muted">Token 来自模型响应。空白表示未采集到用量。分析尝试包含失败重试。</p>
+<div class="usage-heading"><h3>模型用量</h3><span class="usage-window">最近 7 天合计 · 北京时间</span></div>
+<div class="usage-cards">{cards}</div>
+<p class="muted usage-footer">今日数据持续更新。— 表示暂无记录，分析尝试包含失败重试。</p>
 <details><summary>查看每日用量</summary><div class="scroll"><table>
 <thead><tr><th>北京时间</th><th>尝试</th><th>输入 Token</th><th>输出 Token</th><th>有用量的响应（输入 · 输出）</th></tr></thead>
 <tbody>{table}</tbody></table></div></details></div>"""
 
 
-def render_notification_settings(values, threshold, token, message):
+def render_manual_push(push, token):
+    if push is None:
+        return ""
+    channels = "、".join(CHANNEL_NAMES.get(name, name) for name in push["channels_ready"])
+    state = push.get("state")
+    pending = state in {"queued", "retrying"}
+    disabled = " disabled" if pending or not channels else ""
+    sent = int(push.get("delivered", 0))
+    total = int(push.get("channels", 0))
+    status = {
+        "queued": "已提交，下一轮调度处理。",
+        "retrying": f"已送达 {sent} / {total} 个渠道，其余渠道正在重试。",
+        "delivered": f"已送达 {sent} / {total} 个渠道。",
+        "partial": f"已送达 {sent} / {total} 个渠道，其余渠道投递失败。",
+        "failed": "推送失败，请检查投递渠道。",
+        "no_channels": "处理时没有可用的推送渠道。",
+        "empty": "近 24 小时没有可推送的新闻。",
+        "expired": "推送请求已过期，可以重新提交。",
+    }.get(state, "")
+    note = f'<p class="manual-result muted" role="status">{status}</p>' if status else ""
+    audience = f"投递至 {escape(channels)}" if channels else "等待可用的推送渠道"
+    refresh = f'<a href="/admin/?refresh={escape(push["ticket"])}#push-settings">刷新状态</a>' if pending else ""
+    return f"""<div class="panel manual-push">
+<div><h3>手动简报</h3><p class="muted">使用近 24 小时资讯，通常 1 分钟内开始处理。{audience}。</p></div>
+<form action="/admin/notifications/send-now" method="post">
+<input name="token" type="hidden" value="{escape(token)}">
+<input name="request_id" type="hidden" value="{escape(push["ticket"])}">
+<button type="submit"{disabled}>立即推送</button>{refresh}</form>{note}</div>"""
+
+
+def render_notification_settings(values, threshold, token, message, manual_push=None):
     if values is None:
         return ""
     note = f'<p class="message" role="status">{escape(message)}</p>' if message else ""
@@ -421,8 +473,8 @@ def render_notification_settings(values, threshold, token, message):
     checked = " checked" if values["urgent_enabled"] else ""
     return f"""<section id="push-settings" aria-labelledby="push-settings-title">
 <div class="heading"><h2 id="push-settings-title">推送设置</h2><a href="#delivery">查看投递渠道</a></div>
-<form class="panel notify-form" action="/admin/notifications#push-settings" method="post">
-{note}<input name="token" type="hidden" value="{escape(token)}">
+{note}{render_manual_push(manual_push, token)}
+<form class="panel notify-form" action="/admin/notifications#push-settings" method="post"><input name="token" type="hidden" value="{escape(token)}">
 <fieldset><legend>定时任务 · 北京时间</legend>
 <p class="muted">多个简报时间用逗号隔开，留空关闭对应任务。</p>
 <div class="form-grid">{slots}{single}</div></fieldset>
@@ -434,7 +486,7 @@ def render_notification_settings(values, threshold, token, message):
 
 
 def render_dashboard(settings, fields, token, message, snapshot, *, news_url="", model=None, model_message="",
-                     notification=None, notification_message=""):
+                     notification=None, notification_message="", manual_push=None):
     data = snapshot or {}
     numbers = "".join(
         f'<label>{label}<input name="{key}" type="number" required value="{int(settings[key])}"></label>'
@@ -471,7 +523,7 @@ def render_dashboard(settings, fields, token, message, snapshot, *, news_url="",
 <section class="panel" aria-labelledby="source-title"><h3 id="source-title">RSS 采集渠道</h3>{render_sources(data)}</section>
 <section class="panel" id="delivery" aria-labelledby="delivery-title"><h3 id="delivery-title">推送渠道</h3>{render_notifications(data)}</section>
 </div></section>
-{render_notification_settings(notification, settings["urgent_priority_score"], token, notification_message)}
+{render_notification_settings(notification, settings["urgent_priority_score"], token, notification_message, manual_push)}
 <section id="model" aria-labelledby="model-title">
 <div class="heading"><h2 id="model-title">模型与用量</h2></div>
 {render_model(model or {}, data.get("model_usage", []), token, model_message)}
