@@ -333,3 +333,48 @@ def test_youtube_public_views_are_preserved_without_inflating_heat(tmp_path):
         assert "NVIDIA · YouTube（海外）" in html and "YouTube 播放 2,000 次" in html
     finally:
         engine.close()
+
+
+def test_manual_digest_retries_only_failed_channels_with_frozen_edition(tmp_path, monkeypatch):
+    from market_intelligence import manual_digest
+
+    settings_path = tmp_path / "settings.json"
+    status_path = tmp_path / "status.json"
+    monkeypatch.setenv("MARKET_STATUS_PATH", str(status_path))
+    monkeypatch.setenv("MARKET_DIGEST_BASE_URL", "https://admin.example")
+    calls = []
+    clock = [NOW]
+    settings = {"database_path": str(tmp_path / "test.db"),
+                "notification": {"enabled": True, "channels": ["wework", "feishu"]}}
+    config = {"WEWORK_WEBHOOK_URL": "test", "FEISHU_WEBHOOK_URL": "test"}
+
+    def send(channel, body):
+        calls.append((channel, body))
+        return channel == "wework" or sum(name == channel for name, _ in calls) > 1
+
+    request_id = "b" * 32
+    key = "digest-manual:" + request_id
+    engine = MarketIntelligence(settings, config, sender=send, now=lambda: clock[0])
+    add_event(engine.db, "urgent-news", 90, 1)
+    assert manual_digest.enqueue(settings_path, status_path, request_id, NOW)
+    assert not manual_digest.enqueue(settings_path, status_path, "a" * 32, NOW)
+    manual_digest.process(engine, settings_path, status_path)
+    assert manual_digest.current(settings_path, status_path, NOW)["state"] == "retrying"
+    frozen = digests.stored_edition(engine.db, key)
+    assert frozen and len(frozen["events"]) == 1
+    engine.close()
+
+    clock[0] += timedelta(minutes=1)
+    engine = MarketIntelligence(settings, config, sender=send, now=lambda: clock[0])
+    try:
+        add_event(engine.db, "new-news", 95, 1)
+        manual_digest.process(engine, settings_path, status_path)
+        manual_digest.process(engine, settings_path, status_path)
+        result = manual_digest.current(settings_path, status_path, clock[0])
+        assert result["state"] == "delivered" and result["delivered"] == 2
+        assert [name for name, _ in calls] == ["feishu", "wework", "feishu"]
+        assert calls[0][1] == calls[2][1]
+        assert digests.stored_edition(engine.db, key) == frozen
+        assert not manual_digest.enqueue(settings_path, status_path, request_id, clock[0])
+    finally:
+        engine.close()

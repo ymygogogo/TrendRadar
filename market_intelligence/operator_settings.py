@@ -57,7 +57,7 @@ def read(path, base):
     return validate(config, base)
 
 
-def write_document(path, candidate):
+def write_document(path, candidate, *, mode=0o600):
     path = Path(path)
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     fd, pending = tempfile.mkstemp(dir=path.parent, prefix=".settings-")
@@ -66,6 +66,7 @@ def write_document(path, candidate):
             json.dump(candidate, handle, ensure_ascii=False, indent=2)
             handle.write("\n")
             handle.flush()
+            os.fchmod(handle.fileno(), mode)
             os.fsync(handle.fileno())
         os.replace(pending, path)
     finally:

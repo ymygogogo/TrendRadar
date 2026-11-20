@@ -111,6 +111,7 @@ def test_network_access_uses_peer_and_origin_for_password_free_admin(tmp_path):
         "model": {"deployed_model": "openai/original", "model": "openai/original",
                   "endpoint_host": "api.example.net", "max_tokens": 5000, "timeout": 120,
                   "analysis_enabled": True, "credential_configured": True},
+        "notification_channels": {"wework": {"enabled": True, "configured": True, "counts": {}, "latest": None}},
         "model_usage": [{"date": "2026-11-19", "attempts": 2, "input_tokens": 500, "output_tokens": 57,
                          "input_samples": 1, "output_samples": 1, "responses": 1}],
     }))
@@ -140,7 +141,9 @@ def test_network_access_uses_peer_and_origin_for_password_free_admin(tmp_path):
         assert body.index("failed-feed") < body.index("good-feed")
         assert "近 1 小时采集且待分析 3 篇" in body and "今日 2 / 250 次" in body
         assert "模型与用量" in body and 'value="openai/original"' in body
-        assert 'aria-label="最近 7 天输入和输出 Token"' in body and "api.example.net" in body
+        assert 'aria-label="最近 7 天输入 Token"' in body and "api.example.net" in body
+        assert '<p class="usage-value">500</p>' in body and "查看每日用量" in body
+        assert "立即推送" in body and "投递至 企业微信" in body
         assert request("GET", "/admin/", headers={"Host": "foreign.example"})[0] == 403
         spoofed = {"X-Forwarded-For": "127.0.0.1", "X-Real-IP": "127.0.0.1"}
         for route in ("/admin/", "/admin/metrics", "/admin/digests/" + "a" * 24):
@@ -167,6 +170,18 @@ def test_network_access_uses_peer_and_origin_for_password_free_admin(tmp_path):
         assert resolve(base, state) == {**base, "MODEL": "openai/replacement", "MAX_TOKENS": 6000, "TIMEOUT": 90}
         assert "private-secret" not in state.with_name("model.json").read_text()
         assert "推送设置" in body and 'name="urgent_enabled" value="1" checked' in body
+        manual = "/admin/notifications/send-now"
+        manual_data = urlencode({"token": server.token, "request_id": "a" * 32})
+        assert request("GET", manual)[0] == 404
+        assert request("POST", manual, client="127.0.0.2", headers={"Origin": origin, **spoofed}, data=manual_data)[0] == 403
+        assert request("POST", manual, headers={"Origin": public.rstrip("/")}, data=manual_data)[0] == 403
+        assert not state.with_name("manual-digest.json").exists()
+        code, response_headers, _ = request("POST", manual, headers=headers, data=manual_data)
+        assert code == 302 and response_headers["Location"] == "/admin/#push-settings"
+        queued = state.with_name("manual-digest.json").read_bytes()
+        assert request("POST", manual, headers=headers, data=manual_data)[0] == 302
+        assert state.with_name("manual-digest.json").read_bytes() == queued
+        assert "下一轮调度处理" in request("GET", "/admin/")[2]
         policy = {"token": server.token, "daily_times": "18:41, 21:30", "trading_times": "08:30，15:30",
                   "weekly_time": "20:30", "opening_time": "09:40", "max_per_hour": 4,
                   "cooldown_minutes": 30, "urgent_max_age_hours": 12}

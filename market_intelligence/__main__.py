@@ -78,14 +78,19 @@ def trading_command(command, slot):
         from .status import publish_current
 
         jobs = ()
+        manual = False
         if command == "schedule-tick":
             from datetime import datetime
             from zoneinfo import ZoneInfo
+            from .manual_digest import pending
             from .trading_calendar import due_jobs
 
             now = datetime.now(ZoneInfo(settings.get("timezone", "Asia/Shanghai")))
             jobs = tuple(due_jobs(settings, now))
-            if not jobs:
+            settings_path = os.environ.get("MARKET_OPERATOR_SETTINGS")
+            status_path = os.environ.get("MARKET_STATUS_PATH")
+            manual = pending(settings_path, status_path, now)
+            if not jobs and not manual:
                 return 0
 
         engine = MarketIntelligence(settings, config)
@@ -103,6 +108,10 @@ def trading_command(command, slot):
                             engine.dispatch_digest(trading_slot=due)
                         else:
                             engine.dispatch_digest(daily_slot=due)
+                if manual:
+                    from .manual_digest import process
+
+                    process(engine, settings_path, status_path)
             elif command == "publish-public-history":
                 from .public_site import backfill_delivered
 
@@ -124,10 +133,9 @@ def trading_command(command, slot):
 
 
 def brief_now(send, publish_preview):
-    from datetime import timedelta
     from uuid import uuid4
 
-    from . import digests, public_site
+    from . import digests, manual_digest, public_site
     from .engine import MarketIntelligence
 
     with redirect_stdout(sys.stderr):
@@ -136,10 +144,8 @@ def brief_now(send, publish_preview):
         config = load_config()
     engine = MarketIntelligence(config["MARKET_INTELLIGENCE"], config)
     try:
-        now = engine.now()
         key = "digest-manual:" + uuid4().hex
-        edition = digests.make_edition(engine, key, now, now - timedelta(hours=24),
-                                       "即时热点新闻简报", closing=True)
+        edition = manual_digest.edition_for(engine, key)
         origin = os.environ.get("MARKET_DIGEST_BASE_URL", "")
         if send or publish_preview:
             if not origin or not os.environ.get("MARKET_STATUS_PATH"):
