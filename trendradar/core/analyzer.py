@@ -654,6 +654,8 @@ def count_rss_frequency(
                     "mobile_url": "",
                     "is_new": is_new,
                 }
+                if len(title) == 23 and title.endswith("...") and item.get("summary"):
+                    title_data["summary"] = item["summary"]
                 word_stats[group_key]["titles"].append(title_data)
                 break  # 一个条目只匹配第一个词组
 

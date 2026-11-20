@@ -19,7 +19,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
 from .analysis_admission import AnalysisAdmission
-from .chinese_reference import chinese_headline, needs_chinese_reference
+from .chinese_reference import chinese_headline, translatable_headline
 from . import digests, public_site
 
 LOG = logging.getLogger(__name__)
@@ -320,7 +320,7 @@ class MarketIntelligence:
                 "source_urls": [article["url"]],
             },
         }
-        if needs_chinese_reference(article["title"]):
+        if translatable_headline(article["title"]):
             prompt["rules"] += (
                 " For headline_zh, translate only the original article title into Simplified Chinese. "
                 "Preserve names, numbers, attribution and uncertainty. Do not summarize the event or add any details."
@@ -339,7 +339,7 @@ class MarketIntelligence:
             return
         batch_size = min(30, max(1, int(options.get("batch_size", 20))))
         max_batches = min(8, max(0, int(options.get("max_batches_per_run", 4))))
-        missing = [title for title in headlines if title not in references and len(title) <= 500]
+        missing = [title for title in headlines if title not in references and len(title) <= 500 and translatable_headline(title)]
         for offset in range(0, min(len(missing), batch_size * max_batches), batch_size):
             originals = missing[offset:offset + batch_size]
             batch = {str(index): title for index, title in enumerate(originals, start=1)}
@@ -429,7 +429,7 @@ class MarketIntelligence:
                 if result is None:
                     break
                 headline = result.pop("headline_zh", "")
-                if needs_chinese_reference(article["title"]):
+                if translatable_headline(article["title"]):
                     translated = chinese_headline(headline)
                     if translated:
                         self.db.execute("INSERT INTO article_chinese_references VALUES (?,?) ON CONFLICT(article_id) "

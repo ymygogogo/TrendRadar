@@ -17,7 +17,7 @@ import requests
 
 from trendradar.report.rss_views import rss_groups
 
-from .chinese_reference import chinese_headline, needs_chinese_reference
+from .chinese_reference import chinese_headline, headline_from_source, translatable_headline
 from .crawl_filter import blocked_titles
 from .digests import REGION_LABELS, digest_url, region_summary, safe_url
 from .news_topics import NewsTopics, TOPIC_LABELS
@@ -295,7 +295,7 @@ def today_groups(db, settings, now):
             if timestamp.tzinfo is None:
                 timestamp = timestamp.replace(tzinfo=timezone.utc)
             stamp = timestamp.astimezone(now.tzinfo)
-            grouped[topic].append({"title": title, "url": url, "source_id": feed, "source_name": name or feed,
+            grouped[topic].append({"title": title, "summary": summary, "url": url, "source_id": feed, "source_name": name or feed,
                                    "time_display": stamp.strftime("%H:%M")})
     return [{"word": TOPIC_LABELS[topic], "titles": titles} for topic, titles in grouped.items() if titles]
 
@@ -321,7 +321,7 @@ def _rss_panel(groups, view, regions, active, references):
         items = []
         for article in group["titles"]:
             url = external_url(article.get("url", ""))
-            original = article.get("title", "")
+            original = headline_from_source(article.get("title", ""), article.get("summary"))
             title = escape(original)
             if not url or not title:
                 continue
@@ -336,7 +336,7 @@ def _rss_panel(groups, view, regions, active, references):
             rest = " · ".join(filter(None, (region_label, stamp, badge)))
             metadata = " · ".join(filter(None, (source_meta, rest)))
             reference = ""
-            if needs_chinese_reference(original) and (headline := references.get(original)):
+            if translatable_headline(original) and (headline := references.get(original)):
                 reference = ('<p class="news-reference" lang="zh-Hans" data-chinese-reference>'
                              f'<span class="reference-label">中文参考</span>{escape(headline)}</p>')
             items.append(f'<li data-region="{region}"><a class="news-title" href="{escape(url)}" rel="noreferrer">{title}</a>'
@@ -389,10 +389,14 @@ def _home_views(current, new, mode, today, hotlist):
 
 def foreign_headlines(current, new, mode, *, today, hotlist):
     _, views = _home_views(current, new, mode, today, hotlist)
-    return list(dict.fromkeys(
-        article["title"] for _, _, groups in views for group in groups for article in group["titles"]
-        if needs_chinese_reference(article.get("title", "")) and external_url(article.get("url", ""))
-    ))
+    titles = {}
+    for _, _, groups in views:
+        for group in groups:
+            for article in group["titles"]:
+                title = headline_from_source(article.get("title", ""), article.get("summary"))
+                if translatable_headline(title) and external_url(article.get("url", "")):
+                    titles[title] = None
+    return list(titles)
 
 
 def render_home(current, new, now, mode="current", *, hotlist=(), regions=None, brief=None, today=None, references=None):
