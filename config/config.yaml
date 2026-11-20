@@ -298,6 +298,10 @@ market_intelligence:
   database_path: "output/market_intelligence.db"
   max_articles_per_run: 12
   max_articles_per_day: 250
+  headline_translation:
+    enabled: true
+    batch_size: 20
+    max_batches_per_run: 4
   retention_days: 30
   domestic_platforms: ["cls-hot", "wallstreetcn-hot", "thepaper", "eastmoney", "cls-telegraph"]
   crawl_filter:

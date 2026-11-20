@@ -141,32 +141,29 @@ def test_home_keeps_original_links_and_labels_chinese_references():
         {"title": "Oil & gas", "url": "https://example.net/oil"},
         {"title": "苹果公布 AI 计划", "url": "https://example.net/apple"},
     ]
-    references = {
-        ("https://bbc.example/chips", "Chip exports rise 8%"): ("中文参考", "芯片出口增长 8% <估算>"),
-        ("https://example.net/fed", "Fed holds rates"): ("关联事件", "美联储维持利率"),
-        ("https://example.net/oil", "Old title"): ("中文参考", "旧标题"),
-    }
-    page = public_site.render_home(None, None, NOW, today=[{"word": "经济", "titles": entries}],
-                                   references=references).decode()
+    references = {"Chip exports rise 8%": "芯片出口增长 8% <估算>"}
+    today = [{"word": "经济", "titles": entries}]
+    page = public_site.render_home(None, None, NOW, today=today, references=references).decode()
     assert 'href="https://bbc.example/chips?utm_source=rss" rel="noreferrer">Chip exports rise 8%' in page
     assert '>中文参考</span>芯片出口增长 8% &lt;估算&gt;' in page
-    assert '>关联事件</span>美联储维持利率' in page
-    assert 'text=Oil+%26+gas' in page and 'text=Fed+holds+rates' in page
-    assert 'text=Chip' not in page and '旧标题' not in page
-    assert page.count('<a class="translation-link"') == 2
+    assert 'Oil &amp; gas' in page and '苹果公布 AI 计划' in page
+    assert "translate.google.com" not in page and "关联事件" not in page
+    assert page.count(" data-chinese-reference>") == 1
+    assert public_site.foreign_headlines(today, today, "current", today=today, hotlist=today) == [
+        "Chip exports rise 8%", "Fed holds rates", "Oil & gas",
+    ]
 
 
 def test_chinese_references_reads_preupgrade_database(tmp_path):
     engine = MarketIntelligence({"database_path": str(tmp_path / "market.db")}, {})
     try:
         with engine.db:
-            engine.db.execute("DROP TABLE article_chinese_references")
+            engine.db.execute("DROP TABLE public_headline_translations")
             engine.db.execute("""INSERT INTO events(id,title_zh,summary_zh,analysis_json,score,priority,verification_status,updated_at)
                 VALUES ('event','美联储维持利率','','{}',70,'P1','confirmed',?)""", (NOW.isoformat(),))
             engine.db.execute("""INSERT INTO articles(id,feed_id,title,url,collected_at,event_id)
                 VALUES ('article','fed','Fed holds rates','https://example.net/fed',?,'event')""", (NOW.isoformat(),))
-        assert public_site.chinese_references(engine.db, NOW) == {
-            ("https://example.net/fed", "Fed holds rates"): ("关联事件", "美联储维持利率"),
-        }
+            engine.db.execute("INSERT INTO article_chinese_references VALUES ('article','美联储维持利率')")
+        assert public_site.chinese_references(engine.db, NOW) == {"Fed holds rates": "美联储维持利率"}
     finally:
         engine.close()
