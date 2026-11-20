@@ -28,6 +28,7 @@ def test_market_metrics_are_operational_counters_without_news_or_secret_values(t
 
 def test_admin_snapshot_displays_recent_events_and_channel_health_without_credentials(tmp_path, monkeypatch):
     from market_intelligence.admin import render, visible_values
+    from market_intelligence.admin_view import render_event_index
 
     monkeypatch.setenv("MARKET_WEWORK_WEBHOOK_URL", "https://example.invalid/?key=wework-private")
     engine = MarketIntelligence({
@@ -55,6 +56,8 @@ def test_admin_snapshot_displays_recent_events_and_channel_health_without_creden
                VALUES ('a',?,'wework',?,1,?,'dispatch-error-private')""",
             [(1, "delivered", "2026-11-18T15:00:00+08:00"), (2, "failed", "2026-11-18T16:00:00+08:00")],
         )
+        engine.db.execute("""INSERT INTO articles (id,feed_id,title,url,collected_at,event_id)
+            VALUES ('source','sse','原文','https://example.net/news?token=source-private',?,'b')""", (now.isoformat(),))
         path = tmp_path / "status.json"
         publish(path, engine.db, now, engine.notification_status())
         current = read(path)
@@ -68,6 +71,11 @@ def test_admin_snapshot_displays_recent_events_and_channel_health_without_creden
         for label in ("当前汇总", "采集渠道", "推送渠道", "企业微信", "待配置", "连续失败 1 次",
                       "待核实", "16:00", "&lt;script&gt;重点事件&lt;/script&gt;"):
             assert label in html
+        assert 'href="/admin/events" aria-label="查看 2 件 P0 / P1 事件"' in html
+        archive = render_event_index(current, "P0", 1).decode()
+        assert "旧报道" in archive and "&lt;script&gt;重点事件&lt;/script&gt;" in archive
+        assert "https://example.net/news" in archive and "普通资讯" not in archive and "private" not in archive
+        assert "保留期内暂无符合条件的事件" in render_event_index(current, "P1", 1).decode()
         for omitted in ("<script>", "旧报道", "普通资讯", "private"):
             assert omitted not in html
     finally:

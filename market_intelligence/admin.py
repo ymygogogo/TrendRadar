@@ -17,7 +17,7 @@ import threading
 from urllib.parse import parse_qs, urlsplit
 
 from . import digests, manual_digest, model_settings, notification_settings, operator_settings, status
-from .admin_view import render_dashboard, render_digest
+from .admin_view import render_dashboard, render_digest, render_event_index
 
 
 FIELDS = (
@@ -202,6 +202,18 @@ class AdminRequest(RedirectResponse, BaseHTTPRequestHandler):
                     self.reply(404)
                 else:
                     self.reply(200, render_digest(edition))
+        elif path == "/admin/events":
+            if self.authorized():
+                try:
+                    query = parse_qs(urlsplit(self.path).query, max_num_fields=2)
+                    priority = query.get("priority", [""])[0]
+                    page = int(query.get("page", ["1"])[0])
+                    if priority not in {"", "P0", "P1"} or page < 1:
+                        raise ValueError
+                except ValueError:
+                    self.reply(400, "无效的事件筛选条件。".encode(), content_type="text/plain; charset=utf-8")
+                    return
+                self.reply(200, render_event_index(status.read(self.server.status_path), priority, page))
         elif path not in ("/admin/", "/admin/metrics"):
             self.reply(404)
         elif self.authorized():
