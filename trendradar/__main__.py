@@ -1646,21 +1646,26 @@ class NewsAnalyzer:
             if rss_data is not None:
                 extension.ingest(rss_data)
             extension.ingest_hotlist(results, names)
-            if rss_data is not None and any(item.get("success") for item in health.values()):
-                try:
-                    hotlist = public_site.hotlist_groups(results, names, extension.settings)
-                    regions = {source: category.split("_", 1)[0] for source, category in categories.items()}
-                    regions.update(dict.fromkeys(extension.settings.get("domestic_platforms", ()), "domestic"))
-                    now = extension.now()
-                    public_site.publish_home(rss_items, rss_new_items, now, self.report_mode,
-                                             hotlist=hotlist, regions=regions,
-                                             brief=public_site.latest_published_edition(extension.db),
-                                             today=public_site.today_groups(extension.db, settings, now),
-                                             references=public_site.chinese_references(extension.db, now))
-                except Exception as error:
-                    print(f"[市场情报] 公网新闻发布失败: {type(error).__name__}")
             extension.analyze_pending()
             extension.dispatch_urgent()
+            if rss_data is not None and any(item.get("success") for item in health.values()):
+                try:
+                    if public_site.public_origin():
+                        hotlist = public_site.hotlist_groups(results, names, settings)
+                        regions = {source: category.split("_", 1)[0] for source, category in categories.items()}
+                        regions.update(dict.fromkeys(settings.get("domestic_platforms", ()), "domestic"))
+                        now = extension.now()
+                        today = public_site.today_groups(extension.db, settings, now)
+                        references = public_site.chinese_references(extension.db, now)
+                        headlines = public_site.foreign_headlines(
+                            rss_items, rss_new_items, self.report_mode, today=today, hotlist=hotlist)
+                        extension.translate_public_headlines(headlines, references)
+                        public_site.publish_home(rss_items, rss_new_items, now, self.report_mode,
+                                                 hotlist=hotlist, regions=regions,
+                                                 brief=public_site.latest_published_edition(extension.db),
+                                                 today=today, references=references)
+                except Exception as error:
+                    print(f"[市场情报] 公网新闻发布失败: {type(error).__name__}")
             if not self.ctx.config.get("MARKET_LIVE_SCHEDULE"):
                 extension.dispatch_digest()
             extension.maintain()

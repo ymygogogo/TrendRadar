@@ -536,8 +536,45 @@ def test_headline_translation_reuses_analysis_call_and_survives_restart(tmp_path
     reopened = MarketIntelligence(config, {}, now=lambda: NOW)
     try:
         assert public_site.chinese_references(reopened.db, NOW) == {
-            (item.url, item.title): ("中文参考", "美国新增芯片出口限制"),
+            item.title: "美国新增芯片出口限制",
         }
         assert "headline_zh" not in json.loads(reopened.db.execute("SELECT analysis_json FROM events").fetchone()[0])
+    finally:
+        reopened.close()
+
+
+def test_public_headline_batches_cache_valid_items_and_retry_missing(tmp_path):
+    from market_intelligence import public_site
+
+    class BatchClient:
+        def __init__(self):
+            self.batches = []
+
+        def chat(self, messages, **kwargs):
+            self.batches.append(json.loads(messages[1]["content"]))
+            if len(self.batches) == 1:
+                return '{"1":"芯片出口增长","2":"NOT translated","3":"多余条目"}'
+            return '{"1":"维持利率","2":"原油价格走高"}'
+
+    config = settings(tmp_path)
+    config["headline_translation"] = {"batch_size": 2, "max_batches_per_run": 1}
+    client = BatchClient()
+    engine = MarketIntelligence(config, {}, client, now=lambda: NOW)
+    titles = ["Chip exports rise", "Fed holds rates", "Oil prices rise"]
+    references = {}
+    engine.translate_public_headlines(titles, references)
+    assert references == {"Chip exports rise": "芯片出口增长"}
+    assert client.batches == [{"1": titles[0], "2": titles[1]}]
+    assert engine.db.execute("SELECT count(*) FROM events").fetchone()[0] == 0
+    engine.close()
+
+    reopened = MarketIntelligence(config, {}, client, now=lambda: NOW)
+    try:
+        references = public_site.chinese_references(reopened.db, NOW)
+        reopened.translate_public_headlines(titles, references)
+        assert client.batches[-1] == {"1": titles[1], "2": titles[2]}
+        assert list(references) == titles
+        reopened.translate_public_headlines(titles, references)
+        assert len(client.batches) == 2
     finally:
         reopened.close()

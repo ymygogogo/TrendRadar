@@ -173,8 +173,6 @@ button[aria-pressed=true] { border-color:var(--accent); background:var(--accent-
 .topic-card li .news-title:hover { text-decoration:underline; text-underline-offset:.18em; }
 .news-reference { color:#c8eaf4; font-size:.93rem; line-height:1.5; margin:.24rem 0 .32rem; }
 .news-reference .reference-label { color:var(--muted); font-size:.73rem; margin-inline-end:.4rem; white-space:nowrap; }
-.topic-card li .translation-link { display:inline-block; margin-inline-start:.55rem; color:var(--accent); font-size:.79rem; font-weight:500; }
-.topic-card li .translation-link:hover { text-decoration:underline; }
 .news-source { margin-inline-end:.15rem; color:var(--accent); font-weight:580; }
 .history li { padding:.8rem 1rem; }
 .history li:first-child { border:0; }
@@ -209,7 +207,7 @@ button[aria-pressed=true] { border-color:var(--accent); background:var(--accent-
 }
 @media print {
   :root { color-scheme:light; --ink:#111; --muted:#333; --edge:#ddd; --edge-soft:#e5e5e5; --surface:#fff; --bg:#fff; --accent:#111; }
-  header,.scope,.controls,.radar-visual,.radar-sweep,.translation-link,.news-hero::before,.news-hero::after { display:none; }
+  header,.scope,.controls,.radar-visual,.radar-sweep,.news-hero::before,.news-hero::after { display:none; }
   .news-hero { min-height:0; background:var(--bg); box-shadow:none; }
   #collected time,.digest-meta { color:var(--muted); }
   .news-grid:not([hidden]) { animation:none; }
@@ -303,28 +301,21 @@ def today_groups(db, settings, now):
 
 
 def chinese_references(db, now):
-    # Older databases can supply event titles as soon as the new homepage is published.
-    has_translations = db.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='article_chinese_references'"
-    ).fetchone()
-    translation = "r.headline_zh" if has_translations else "NULL"
-    join = "LEFT JOIN article_chinese_references r ON r.article_id=a.id" if has_translations else ""
-    cutoff = (now - timedelta(days=2)).isoformat()
-    rows = db.execute(f"""SELECT a.url,a.title,{translation},e.title_zh FROM articles a
-        LEFT JOIN events e ON e.id=a.event_id {join}
-        WHERE a.collected_at>=?""", (cutoff,))
+    tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     references = {}
-    for url, original, translated, event in rows:
-        if needs_chinese_reference(original):
-            if headline := chinese_headline(translated):
-                references[url, original] = ("中文参考", headline)
-            elif headline := chinese_headline(event):
-                references[url, original] = ("关联事件", headline)
+    if "article_chinese_references" in tables:
+        cutoff = (now - timedelta(days=2)).isoformat()
+        rows = db.execute("""SELECT a.title,r.headline_zh FROM article_chinese_references r
+            JOIN articles a ON a.id=r.article_id WHERE a.collected_at>=?
+            ORDER BY a.collected_at, a.id""", (cutoff,))
+        references.update((title, headline) for title, value in rows if (headline := chinese_headline(value)))
+    if "public_headline_translations" in tables:
+        rows = db.execute("SELECT original,headline_zh FROM public_headline_translations")
+        references.update((title, headline) for title, value in rows if (headline := chinese_headline(value)))
     return references
 
 
 def _rss_panel(groups, view, regions, active, references):
-    from .engine import canonical_url
     output = []
     for group in groups:
         items = []
@@ -344,18 +335,12 @@ def _rss_panel(groups, view, regions, active, references):
             source_meta = f'<span class="news-source">{author}</span>' if author else ""
             rest = " · ".join(filter(None, (region_label, stamp, badge)))
             metadata = " · ".join(filter(None, (source_meta, rest)))
-            reference = translate_link = ""
-            if needs_chinese_reference(original):
-                label, headline = references.get((canonical_url(url), original), ("", ""))
-                if headline:
-                    reference = (f'<p class="news-reference" lang="zh-Hans" data-chinese-reference>'
-                                 f'<span class="reference-label">{label}</span>{escape(headline)}</p>')
-                if label != "中文参考":
-                    query = urlencode({"sl": "auto", "tl": "zh-CN", "text": original, "op": "translate"})
-                    translate_link = (f'<a class="translation-link" href="https://translate.google.com/?{escape(query)}"'
-                                      f' target="_blank" rel="noopener noreferrer">翻译标题</a>')
+            reference = ""
+            if needs_chinese_reference(original) and (headline := references.get(original)):
+                reference = ('<p class="news-reference" lang="zh-Hans" data-chinese-reference>'
+                             f'<span class="reference-label">中文参考</span>{escape(headline)}</p>')
             items.append(f'<li data-region="{region}"><a class="news-title" href="{escape(url)}" rel="noreferrer">{title}</a>'
-                         f'{reference}<small><span class="source-meta">{metadata}</span>{translate_link}</small></li>')
+                         f'{reference}<small><span class="source-meta">{metadata}</span></small></li>')
         if items:
             output.append((f'<section class="topic-card"><h3>{escape(group["word"])} <small>{len(items)} 条</small></h3>'
                            f'<ul>{"".join(items)}</ul></section>', len(items)))
@@ -391,16 +376,28 @@ def hotlist_groups(results, names, settings):
     return groups
 
 
-def render_home(current, new, now, mode="current", *, hotlist=(), regions=None, brief=None, today=None, references=None):
+def _home_views(current, new, mode, today, hotlist):
     recent, all_groups = rss_groups(current, new, mode)
     active = "today" if today else "all" if mode != "incremental" and not recent and all_groups else "recent"
-    regions = regions or {}
     views = [("today", "今日新闻", today)] if today is not None else []
     views.append(("recent", "本轮新增", recent))
     if mode != "incremental":
         views.append(("all", "今日全部" if mode == "daily" else "当前全部", all_groups))
     views.append(("hot", "热点榜单", hotlist))
-    rendered = [(view, label, *_rss_panel(groups, view, regions, active, references or {})) for view, label, groups in views]
+    return active, views
+
+
+def foreign_headlines(current, new, mode, *, today, hotlist):
+    _, views = _home_views(current, new, mode, today, hotlist)
+    return list(dict.fromkeys(
+        article["title"] for _, _, groups in views for group in groups for article in group["titles"]
+        if needs_chinese_reference(article.get("title", "")) and external_url(article.get("url", ""))
+    ))
+
+
+def render_home(current, new, now, mode="current", *, hotlist=(), regions=None, brief=None, today=None, references=None):
+    active, views = _home_views(current, new, mode, today, hotlist)
+    rendered = [(view, label, *_rss_panel(groups, view, regions or {}, active, references or {})) for view, label, groups in views]
     switch = "".join(
         f'<button type="button" data-show="{view}" aria-pressed="{str(view == active).lower()}">{label} {count}</button>'
         for view, label, _, count in rendered)
