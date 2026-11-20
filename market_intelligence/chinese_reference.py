@@ -17,3 +17,20 @@ def chinese_headline(value):
         return ""
     headline = " ".join(value.split())
     return headline if len(headline) <= 220 else ""
+
+
+def translatable_headline(title):
+    return not title.rstrip().endswith(("...", "…")) and needs_chinese_reference(title)
+
+
+def headline_from_source(title, summary):
+    # Titleless RSS posts get a 20-character fallback from the parser.
+    if len(title) != 23 or not title.endswith("...") or not summary:
+        return title
+    text = " ".join(summary.split())
+    if not text.startswith(title[:-3]):
+        return title
+    if 23 < len(text) <= 220 and not text.endswith(("...", "…")):
+        return text
+    sentence = re.match(r".{21,219}?[.!?](?=\s|$)", text)
+    return sentence[0] if sentence else title

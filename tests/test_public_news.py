@@ -167,3 +167,22 @@ def test_chinese_references_reads_preupgrade_database(tmp_path):
         assert public_site.chinese_references(engine.db, NOW) == {"Fed holds rates": "美联储维持利率"}
     finally:
         engine.close()
+
+
+def test_truncated_feed_title_uses_only_source_excerpt_for_translation():
+    original = "Chip exporters warn 8% growth could slow."
+    truncated = original[:20] + "..."
+    unknown = "Fed's next move may..."
+    today = [{"word": "经济", "titles": [
+        {"title": truncated, "summary": original, "url": "https://example.net/chips"},
+        {"title": unknown, "url": "https://example.net/fed"},
+    ]}]
+    assert public_site.foreign_headlines(None, None, "current", today=today, hotlist=[]) == [original]
+    page = public_site.render_home(None, None, NOW, today=today, references={
+        original: "芯片出口商警告，8% 的增速可能放缓。",
+        truncated: "旧的猜测译文",
+        unknown: "另一条猜测译文",
+    }).decode()
+    assert "Chip exporters warn 8% growth could slow." in page
+    assert "芯片出口商警告，8% 的增速可能放缓。" in page
+    assert "猜测译文" not in page
