@@ -141,8 +141,8 @@ def test_network_access_uses_peer_and_origin_for_password_free_admin(tmp_path):
         assert body.index("failed-feed") < body.index("good-feed")
         assert "近 1 小时采集且待分析 3 篇" in body and "今日 2 / 250 次" in body
         assert "模型与用量" in body and 'value="openai/original"' in body
-        assert 'aria-label="最近 7 天输入 Token"' in body and "api.example.net" in body
-        assert '<p class="usage-value">500</p>' in body and "查看每日用量" in body
+        assert 'aria-label="最近 7 天输入与输出 Token 曲线"' in body and "api.example.net" in body
+        assert '<strong>今日 500</strong>' in body and "查看每日用量" in body
         assert "立即推送" in body and "投递至 企业微信" in body
         assert request("GET", "/admin/", headers={"Host": "foreign.example"})[0] == 403
         spoofed = {"X-Forwarded-For": "127.0.0.1", "X-Real-IP": "127.0.0.1"}

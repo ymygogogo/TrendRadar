@@ -34,37 +34,58 @@ STYLE = THEME + """
 html { scroll-padding-block-start:5rem; }
 body { margin:0; background:var(--bg); color:var(--text); font:1rem/1.55 var(--font); }
 a { color:var(--accent); text-underline-offset:.22em; }
-.model-usage { margin-top:1rem; background:linear-gradient(155deg,#132537 0%,var(--surface) 60%); }
-.usage-heading { display:flex; justify-content:space-between; align-items:baseline; gap:.5rem; flex-wrap:wrap; margin-bottom:.95rem; }
-.usage-heading h3 { font-size:1.12rem; }
-.usage-window { color:var(--muted); font-size:.8rem; }
-.usage-cards { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.7rem; }
-.usage-card { padding:.88rem .95rem .66rem; border:1px solid var(--edge); border-radius:.75rem; min-width:0;
-  background:#0a1724; box-shadow:inset 0 1px 0 #b4e8ff12; }
-.usage-card h4 { margin:0; color:var(--metric); font-size:.85rem; font-weight:650; }
-.usage-value { margin:.14rem 0; font-size:clamp(1.28rem,2.8vw,1.85rem); font-weight:740; line-height:1.25;
-  letter-spacing:-.035em; font-variant-numeric:tabular-nums; }
-.usage-latest { color:var(--muted); font-size:.78rem; font-variant-numeric:tabular-nums; }
-.usage-chart { display:block; width:100%; margin-top:.5rem; }
-.usage-chart text { fill:var(--muted); font:10px system-ui,sans-serif; font-variant-numeric:tabular-nums; }
-.usage-chart .measure { fill:var(--metric); }
-.usage-chart .absent { fill:var(--edge); }
-.usage-chart .guide { stroke:var(--edge-soft); }
+.model-usage { margin-top:1rem; background:linear-gradient(155deg,#132537 0%,var(--surface) 65%); }
+.usage-heading,.usage-legend { display:flex; justify-content:space-between; align-items:baseline; gap:.45rem 1rem; flex-wrap:wrap; }
+.usage-heading { margin-bottom:.95rem; }
+.usage-heading h3 { font-size:1.14rem; }
+.usage-window,.usage-dates,.usage-scale { color:var(--muted); font-size:.78rem; font-variant-numeric:tabular-nums; }
+.usage-frame { --axis:3.3rem; padding:.9rem 1rem .7rem; border:1px solid var(--edge); border-radius:.75rem;
+  background:#0a1724; }
+.usage-legend { justify-content:flex-start; margin:0 0 1.05rem var(--axis); }
+.usage-legend span { display:inline-flex; align-items:center; gap:.36rem; font-size:.85rem; color:var(--muted); }
+.usage-legend i { width:.55rem; height:.55rem; border-radius:100%; background:var(--metric); }
+.usage-legend strong { color:var(--ink); font-variant-numeric:tabular-nums; }
+.usage-panel { display:grid; grid-template-columns:var(--axis) minmax(0,1fr); }
+.usage-secondary { padding-top:.85rem; margin-top:.85rem; border-top:1px solid var(--edge-soft); }
+.usage-scale { position:relative; text-align:right; padding-inline-end:.6rem; }
+.usage-scale span { position:absolute; inset-inline-end:.6rem; transform:translateY(-50%); }
+.usage-plot { position:relative; min-width:0; height:clamp(10rem,21vw,14rem); }
+.usage-secondary .usage-plot { height:clamp(4.8rem,10vw,6.5rem); }
+.usage-chart { display:block; width:100%; height:100%; overflow:visible; }
+.usage-chart .guide { stroke:var(--edge-soft); vector-effect:non-scaling-stroke; }
+.usage-chart .trace { fill:none; stroke:var(--metric); stroke-width:2.5; vector-effect:non-scaling-stroke; }
+.usage-chart .point { stroke:var(--metric); stroke-width:5; stroke-linecap:round; vector-effect:non-scaling-stroke; }
+.usage-dates,.usage-days { display:grid; grid-template-columns:repeat(var(--days),minmax(0,1fr)); text-align:center; }
+.usage-dates { margin:.5rem 0 0 var(--axis); }
+.usage-days { position:absolute; inset:0; }
+.usage-day { position:relative; width:100%; min-height:0; border:0; padding:0; background:transparent; color:inherit;
+  border-radius:0; outline-offset:-2px; }
+.usage-day::before { content:""; position:absolute; inset:0 50% 0 auto; border-inline-start:1px dashed var(--muted); opacity:0; }
+.usage-days .usage-day:hover,.usage-days .usage-day:focus { background:#a7e3ff0b; z-index:1; }
+.usage-day:hover::before,.usage-day:focus::before { opacity:.65; }
+.usage-tooltip { display:none; position:absolute; inset:1rem auto auto 50%; transform:translateX(-50%);
+  width:max-content; min-width:8.7rem; pointer-events:none; text-align:left; font-size:.78rem; line-height:1.55;
+  padding:.48rem .62rem; border:1px solid var(--edge); border-radius:.45rem; background:#142739;
+  box-shadow:0 6px 18px #0008; font-variant-numeric:tabular-nums; }
+.usage-tooltip b,.usage-tooltip span { display:block; }
+.usage-tooltip span { color:var(--muted); }
+.usage-day:hover .usage-tooltip,.usage-day:focus .usage-tooltip { display:block; }
+.usage-day:nth-child(-n+2) .usage-tooltip { inset-inline-start:0; transform:none; }
+.usage-day:nth-last-child(-n+2) .usage-tooltip { inset-inline: auto 0; transform:none; }
 .usage-footer { margin:.85rem 0 .2rem; }
 .model-usage summary { cursor:pointer; width:fit-content; color:var(--accent); }
+@media (max-width:42rem) {
+  .usage-frame { --axis:2.4rem; padding-inline:.45rem; }
+  .usage-scale,.usage-dates { font-size:.68rem; }
+  .usage-scale span { inset-inline-end:.4rem; }
+  .usage-legend { gap:.35rem .7rem; margin-inline-start:.35rem; }
+  .usage-legend span { font-size:.76rem; }
+}
 .manual-push { display:flex; flex-wrap:wrap; justify-content:space-between; gap:.7rem 1.5rem; align-items:center; margin-bottom:.75rem; }
 .manual-push h3 { margin:0 0 .22rem; }
 .manual-push form { display:flex; align-items:center; gap:.65rem; flex-wrap:wrap; }
 .manual-push .manual-result { flex-basis:100%; border-top:1px solid var(--edge-soft); padding-top:.7rem; }
 .manual-push button:disabled { opacity:.55; cursor:default; }
-@media (max-width:42rem) {
-  .usage-cards { grid-template-columns:1fr; }
-  .usage-card { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:0 .6rem; align-items:baseline; }
-  .usage-card h4 { grid-column:1/-1; }
-  .usage-value { grid-column:1; }
-  .usage-latest { grid-column:2; }
-  .usage-chart { grid-column:1/-1; max-height:5.25rem; }
-}
 .top { background:var(--header); border-block-end:1px solid var(--edge-soft); position:sticky; top:0; z-index:3; }
 .workflow { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.75rem; margin:1rem 0; }
 .workflow .panel { display:grid; align-content:start; gap:.35rem; border-top:2px solid var(--edge); }
@@ -362,29 +383,65 @@ def _usage_number(value):
     return f"{value:,}" if value is not None else "—"
 
 
-def _usage_card(rows, key, label, color):
-    values = [row[key] for row in rows if row[key] is not None]
-    total = _usage_number(sum(values) if values else None)
-    latest = _usage_number(rows[-1][key])
-    peak = max(1, *values) if values else 1
-    step = 252 / len(rows)
-    marks = []
-    for index, row in enumerate(rows):
-        center = 4 + step * (index + .5)
-        value = row[key]
-        height = max(2, value / peak * 42) if value is not None else 2
-        full_date = escape(row["date"])
-        kind = "measure" if value is not None else "absent"
-        opacity = "1" if index == len(rows) - 1 else ".62"
-        marks.append(
-            f'<g><title>{full_date} · {escape(label)} {_usage_number(value)}</title>'
-            f'<rect class="{kind}" x="{center - 8:.1f}" y="{49 - height:.1f}" width="16" height="{height:.1f}" '
-            f'rx="2" opacity="{opacity}"/></g><text x="{center:.1f}" y="65" text-anchor="middle">{full_date[5:]}</text>'
-        )
-    return (f'<article class="usage-card" style="--metric:{color}"><h4>{label}</h4>'
-            f'<p class="usage-value">{total}</p><p class="usage-latest">今日 {latest}</p>'
-            f'<svg viewBox="0 0 260 69" class="usage-chart" role="img" aria-label="最近 7 天{label}">'
-            f'<path class="guide" d="M4 7H256M4 28H256M4 49H256" fill="none"/>{"".join(marks)}</svg></article>')
+TOKEN_SERIES = (("input_tokens", "输入 Token", "#58d8ee"), ("output_tokens", "输出 Token", "#b9a5ff"))
+ATTEMPT_SERIES = (("attempts", "分析尝试", "#74e6a6"),)
+
+
+def _axis_number(number):
+    for unit, divisor in (("M", 1_000_000), ("k", 1_000)):
+        if number >= divisor:
+            return f"{number / divisor:g}{unit}"
+    return str(number)
+
+
+def _usage_plot(rows, series, name, *, secondary=False):
+    values = [row[key] for row in rows for key, _, _ in series if row[key] is not None]
+    step = max(1, (max(values, default=0) + 3) // 4)
+    order = 10 ** (len(str(step)) - 1)
+    tick = next(value * order for value in (1, 2, 5, 10) if value * order >= step)
+    paths = []
+    for key, _, color in series:
+        trace = []
+        points = []
+        previous = None
+        for index, row in enumerate(rows):
+            value = row[key]
+            if value is None:
+                previous = None
+                continue
+            x = 600 * (index + .5) / len(rows)
+            y = 100 - 100 * value / (tick * 4)
+            if previous is None:
+                trace.append(f"M{x:.2f},{y:.2f}")
+            else:
+                old_x, old_y = previous
+                mid = (old_x + x) / 2
+                trace.append(f"C{mid:.2f},{old_y:.2f} {mid:.2f},{y:.2f} {x:.2f},{y:.2f}")
+            points.append(f"M{x:.2f},{y:.2f}h.01")
+            previous = (x, y)
+        paths.append(f'<g style="--metric:{color}"><path class="trace" d="{" ".join(trace)}"/>'
+                     f'<path class="point" d="{" ".join(points)}"/></g>')
+    guides = " ".join(f"M0,{y}H600" for y in range(0, 101, 25))
+    scale = "".join(f'<span style="top:{y}%">{_axis_number(tick * (4 - i))}</span>'
+                    for i, y in enumerate(range(0, 101, 25)) if not secondary or i % 2 == 0)
+    legend = "".join(f'<span><i style="--metric:{color}" aria-hidden="true"></i>{label}'
+                     f'<strong>今日 {_usage_number(rows[-1][key])}</strong></span>' for key, label, color in series)
+    days = []
+    if not secondary:
+        for row in rows:
+            stamp = escape(row["date"])
+            details = [(label, _usage_number(row[key])) for key, label, _ in TOKEN_SERIES + ATTEMPT_SERIES]
+            spoken = escape("，".join([row["date"], *(f"{label} {value}" for label, value in details)]))
+            detail = "".join(f"<span>{label} · {value}</span>" for label, value in details)
+            days.append(f'<button type="button" class="usage-day" aria-label="{spoken}">'
+                        f'<span class="usage-tooltip" aria-hidden="true"><b>{stamp}</b>{detail}</span></button>')
+    selector = f'<div class="usage-days">{"".join(days)}</div>' if days else ""
+    panel = ' class="usage-secondary"' if secondary else ""
+    return (f'<div{panel}><div class="usage-legend">{legend}</div>'
+            f'<div class="usage-panel"><div class="usage-scale" aria-hidden="true">{scale}</div>'
+            f'<div class="usage-plot"><svg class="usage-chart" viewBox="0 0 600 100" preserveAspectRatio="none"'
+            f' role="img" aria-label="{name}"><path class="guide" d="{guides}" fill="none"/>{"".join(paths)}</svg>'
+            f'{selector}</div></div></div>')
 
 
 def render_model(model, usage, token, message):
@@ -409,20 +466,18 @@ def render_model(model, usage, token, message):
         configuration = f'<div class="panel">{note}<p class="muted">等待采集容器同步模型配置。</p></div>'
     if not usage:
         return configuration
-    cards = "".join(_usage_card(usage, key, label, color) for key, label, color in (
-        ("input_tokens", "输入 Token", "#55d9f0"),
-        ("output_tokens", "输出 Token", "#b9a5ff"),
-        ("attempts", "分析尝试", "#74e6a6"),
-    ))
+    charts = _usage_plot(usage, TOKEN_SERIES, "最近 7 天输入与输出 Token 曲线")
+    charts += _usage_plot(usage, ATTEMPT_SERIES, "最近 7 天分析尝试次数曲线", secondary=True)
+    dates = "".join(f'<span>{escape(row["date"][5:])}</span>' for row in usage)
     table = "".join(
         f'<tr><th scope="row">{escape(row["date"])}</th><td>{_usage_number(row["attempts"])}</td>'
         f'<td>{_usage_number(row["input_tokens"])}</td><td>{_usage_number(row["output_tokens"])}</td>'
         f'<td>{row["input_samples"]}/{row["responses"]} · {row["output_samples"]}/{row["responses"]}</td></tr>'
         for row in usage)
     return configuration + f"""<div class="panel model-usage">
-<div class="usage-heading"><h3>模型用量</h3><span class="usage-window">最近 7 天合计 · 北京时间</span></div>
-<div class="usage-cards">{cards}</div>
-<p class="muted usage-footer">今日数据持续更新。— 表示暂无记录，分析尝试包含失败重试。</p>
+<div class="usage-heading"><h3>模型用量</h3><span class="usage-window">最近 7 天 · 北京时间</span></div>
+<div class="usage-frame" style="--days:{len(usage)}">{charts}<div class="usage-dates" aria-hidden="true">{dates}</div></div>
+<p class="muted usage-footer">今日数据持续更新。Token 曲线的空缺表示暂无记录。分析尝试包含失败重试。</p>
 <details><summary>查看每日用量</summary><div class="scroll"><table>
 <thead><tr><th>北京时间</th><th>尝试</th><th>输入 Token</th><th>输出 Token</th><th>有用量的响应（输入 · 输出）</th></tr></thead>
 <tbody>{table}</tbody></table></div></details></div>"""

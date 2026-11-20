@@ -186,3 +186,18 @@ def test_truncated_feed_title_uses_only_source_excerpt_for_translation():
     assert "Chip exporters warn 8% growth could slow." in page
     assert "芯片出口商警告，8% 的增速可能放缓。" in page
     assert "猜测译文" not in page
+
+
+def test_public_home_merges_yahoo_republished_story_in_each_view():
+    title = "算力需求強 華碩第4季擴大輝達Vera Rubin機櫃出貨"
+    slug = "算力需求強-華碩第4季擴大輝達vera-rubin機櫃出貨"
+    yahoo_news = {"title": title, "url": f"https://tw.news.yahoo.com/{slug}-040652861.html",
+                  "source_id": "yahoo-news", "time_display": "12:06"}
+    yahoo_stock = {"title": title, "url": f"https://tw.stock.yahoo.com/news/{slug}-040433801.html",
+                   "source_id": "yahoo-stock", "time_display": "12:04"}
+    other = {"title": title, "url": "https://publisher.example/another", "source_id": "publisher"}
+    groups = [{"word": "科技", "titles": [yahoo_news, yahoo_stock, other]}]
+    page = public_site.render_home(groups, groups, NOW, today=groups).decode()
+    assert page.count(title) == 6
+    assert "040433801.html" not in page and "040652861.html" in page and other["url"] in page
+    assert "今日新闻 2" in page and "本轮新增 2" in page and "当前全部 2" in page
