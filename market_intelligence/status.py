@@ -57,6 +57,23 @@ def snapshot(db, now, channels=None, model=None):
             AND julianday(latest_reported_at) BETWEEN julianday(?) AND julianday(?)
         ORDER BY priority, score DESC, julianday(latest_reported_at) DESC, id LIMIT 8""",
         ((now - timedelta(hours=24)).isoformat(), now.isoformat()))]
+    from .public_site import external_url
+
+    status["priority_events"] = [
+        {
+            "title": title, "summary": summary, "priority": priority, "score": score,
+            "verification": verification, "reported_at": reported, "updated_at": updated,
+            "source": external_url(source) if source else "",
+        }
+        for title, summary, priority, score, verification, reported, updated, source in db.execute(
+            """SELECT e.title_zh,substr(e.summary_zh,1,240),e.priority,e.score,
+                      e.verification_status,e.latest_reported_at,e.updated_at,
+                      (SELECT a.url FROM articles a WHERE a.event_id=e.id
+                       ORDER BY julianday(a.published_at) DESC, a.id LIMIT 1)
+               FROM events e WHERE e.priority IN ('P0','P1')
+               ORDER BY julianday(coalesce(e.latest_reported_at,e.updated_at)) DESC,
+                        e.score DESC,e.id""")
+    ]
     deliveries = {}
     for channel, state, count in db.execute("SELECT channel,state,count(*) FROM deliveries GROUP BY 1,2"):
         deliveries.setdefault(channel, {})[state] = count

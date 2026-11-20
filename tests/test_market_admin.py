@@ -112,6 +112,12 @@ def test_network_access_uses_peer_and_origin_for_password_free_admin(tmp_path):
                   "endpoint_host": "api.example.net", "max_tokens": 5000, "timeout": 120,
                   "analysis_enabled": True, "credential_configured": True},
         "notification_channels": {"wework": {"enabled": True, "configured": True, "counts": {}, "latest": None}},
+        "priority_events": [
+            {"title": f"重点事件第 {i} 条", "summary": "正文摘要", "priority": "P1",
+             "score": 72, "verification": "confirmed", "source": "https://example.net/news",
+             "reported_at": "2026-11-18T14:00:00+08:00", "updated_at": "2026-11-18T16:00:00+08:00"}
+            for i in range(1, 22)
+        ],
         "model_usage": [{"date": "2026-11-19", "attempts": 2, "input_tokens": 500, "output_tokens": 57,
                          "input_samples": 1, "output_samples": 1, "responses": 1}],
     }))
@@ -148,6 +154,15 @@ def test_network_access_uses_peer_and_origin_for_password_free_admin(tmp_path):
         spoofed = {"X-Forwarded-For": "127.0.0.1", "X-Real-IP": "127.0.0.1"}
         for route in ("/admin/", "/admin/metrics", "/admin/digests/" + "a" * 24):
             assert request("GET", route, client="127.0.0.2", headers=spoofed)[0] == 403
+        assert request("GET", "/admin/events", client="127.0.0.2", headers=spoofed)[0] == 403
+        assert "查看 21 件 P0 / P1 事件" in body and "查看更早的事件" in body
+        code, _, events = request("GET", "/admin/events?priority=P1")
+        assert code == 200 and "重点事件第 1 条" in events and "重点事件第 21 条" not in events
+        assert "/admin/events?priority=P1&amp;page=2" in events
+        code, _, events = request("GET", "/admin/events?priority=P1&page=2")
+        assert code == 200 and "重点事件第 21 条" in events and "重点事件第 1 条" not in events
+        assert "保留期内暂无符合条件的事件" in request("GET", "/admin/events?priority=P0")[2]
+        assert request("GET", "/admin/events?priority=P2")[0] == 400
         data = urlencode({"token": server.token, "min_priority_score": 75, "urgent_priority_score": 90,
                           "max_articles_per_run": 24, "max_articles_per_day": 250,
                           "max_digest_events": 8, "ignore_title_terms": "饭圈"})

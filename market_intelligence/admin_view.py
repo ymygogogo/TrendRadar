@@ -124,6 +124,25 @@ h3 { font-size:1rem; }
 .panel { padding:clamp(.85rem,2vw,1.3rem); min-width:0; }
 .stats { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.75rem; margin-block-end:.75rem; }
 .stats > div { padding:.7rem .9rem; }
+.stats .event-stat { position:relative; }
+.event-stat dt { display:flex; justify-content:space-between; align-items:baseline; gap:.3rem; }
+.event-stat a { color:inherit; text-decoration:none; }
+.event-stat a::after { content:""; position:absolute; inset:0; border-radius:var(--radius); }
+.event-stat span { color:var(--accent); }
+.event-stat:hover,.event-stat:focus-within { border-color:var(--accent); background:var(--surface-raised); }
+.event-index .bar,.event-index main { max-width:58rem; }
+.event-index main { padding-bottom:2rem; }
+.event-index h1 { margin:.2rem 0 .35rem; }
+.event-index .events li { padding-block:.95rem; }
+.event-index .events li:first-child { padding-block-start:.3rem; }
+.event-index .events li:last-child { padding-block-end:.25rem; }
+.event-filters,.event-pages { display:flex; flex-wrap:wrap; align-items:center; gap:.55rem; }
+.event-filters { margin:1rem 0 .8rem; }
+.event-filters a,.event-pages a { display:inline-block; border:1px solid var(--edge); padding:.38rem .72rem;
+  border-radius:.45rem; text-decoration:none; }
+.event-filters a[aria-current=true] { background:var(--accent-quiet); border-color:var(--accent); }
+.event-pages { margin-top:.9rem; }
+.event-index .event-source { display:inline-block; margin-top:.2rem; font-size:.85rem; }
 .queue-note { margin-block-end:.75rem; }
 dt { color:var(--muted); font-size:.9rem; }
 dd { margin:0; font-size:1.55rem; font-weight:700; color:var(--text); font-variant-numeric:tabular-nums; }
@@ -298,15 +317,14 @@ def render_overview(snapshot, settings):
         return '<p class="panel muted">等待首轮采集生成状态快照。</p>'
     articles = snapshot["articles"]
     events = snapshot.get("events", {})
-    deliveries = snapshot.get("deliveries", {})
-    cards = "".join(
-        f'<div><dt>{label}</dt><dd aria-label="{label} {count} {unit}">{count:,} <small>{unit}</small></dd></div>'
-        for label, count, unit in (
-            ("已分析", articles.get("done", 0), "篇"),
-            ("P0 / P1 事件", events.get("P0", 0) + events.get("P1", 0), "件"),
-            ("成功投递", deliveries.get("delivered", 0), "条"),
-        )
-    )
+    retained = snapshot.get("priority_events")
+    count = len(retained) if retained is not None else events.get("P0", 0) + events.get("P1", 0)
+    analyzed = articles.get("done", 0)
+    delivered = snapshot.get("deliveries", {}).get("delivered", 0)
+    cards = f"""<div><dt>已分析</dt><dd aria-label="已分析 {analyzed} 篇">{analyzed:,} <small>篇</small></dd></div>
+<div class="event-stat"><dt>P0 / P1 事件 <span aria-hidden="true">↗</span></dt><dd>
+<a href="/admin/events" aria-label="查看 {count:,} 件 P0 / P1 事件">{count:,} <small>件</small></a></dd></div>
+<div><dt>成功投递</dt><dd aria-label="成功投递 {delivered} 条">{delivered:,} <small>条</small></dd></div>"""
     rows = "".join(
         f'<li><span class="tag {"warn" if priority == "P0" else "info"}">{escape(priority)}</span>'
         f'<div><p class="event-title">{escape(title)}</p><p class="event-summary">{escape(summary)}</p>'
@@ -314,12 +332,70 @@ def render_overview(snapshot, settings):
         f'最近报道 {local_time(stamp)}</p></div></li>'
         for title, summary, priority, score, verified, stamp in snapshot.get("recent_events", [])
     )
-    recent = f'<ul class="events">{rows}</ul>' if rows else '<p class="muted">过去 24 小时暂无 P0 / P1 事件。</p>'
+    if rows:
+        recent = f'<ul class="events">{rows}</ul>'
+    else:
+        history = ' <a href="/admin/events">查看更早的事件</a>' if count else ""
+        recent = f'<p class="muted">过去 24 小时暂无 P0 / P1 事件。{history}</p>'
     excluded = articles.get("filtered", 0)
     expired = articles.get("expired", 0)
     archived = (f'<p class="muted queue-note">仅存档 {excluded:,} 篇 · 已过期 {expired:,} 篇</p>'
                 if excluded or expired else "")
     return f'{render_workflow(snapshot, settings)}<dl class="stats">{cards}</dl>{archived}<div class="panel"><h3>近 24 小时重点事件</h3>{recent}</div>'
+
+
+def render_event_index(snapshot, priority, page):
+    from .public_site import external_url
+
+    archive = (snapshot or {}).get("priority_events")
+    retained = archive or []
+    counts = {value: sum(row["priority"] == value for row in retained) for value in ("P0", "P1")}
+    filters = "".join(
+        f'<a href="/admin/events{query}" aria-current="{str(priority == value).lower()}">{label} {total:,}</a>'
+        for value, label, query, total in (
+            ("", "全部", "", len(retained)), ("P0", "P0", "?priority=P0", counts["P0"]),
+            ("P1", "P1", "?priority=P1", counts["P1"]),
+        )
+    )
+    shown = [row for row in retained if not priority or row["priority"] == priority]
+    size = 20
+    last_page = max(1, (len(shown) + size - 1) // size)
+    page = min(page, last_page)
+    rows = []
+    for row in shown[(page - 1) * size:page * size]:
+        badge = "warn" if row["priority"] == "P0" else "info"
+        status = VERIFICATION_STATES.get(row["verification"], "核实状态未知")
+        time_label = "最新报道" if row["reported_at"] else "最近更新"
+        stamp = local_time(row["reported_at"] or row["updated_at"], full=True)
+        source = external_url(row["source"]) if row["source"] else ""
+        source_link = (f'<a class="event-source" href="{escape(source)}" target="_blank" rel="noopener noreferrer">'
+                       '查看来源原文 ↗</a>') if source else ""
+        rows.append(f'<li><span class="tag {badge}">{escape(row["priority"])}</span><div>'
+                    f'<p class="event-title">{escape(row["title"])}</p><p class="event-summary">{escape(row["summary"])}</p>'
+                    f'<p class="muted">{row["score"]} 分 · {status} · {time_label} {stamp}</p>{source_link}</div></li>')
+    if archive is None:
+        body = '<p class="muted">事件明细将在下一次状态更新后显示。</p>'
+    elif not rows:
+        body = '<p class="muted">保留期内暂无符合条件的事件。</p>'
+    else:
+        body = '<ul class="events">' + "".join(rows) + "</ul>"
+    pagination = ""
+    if last_page > 1:
+        prefix = f"priority={priority}&amp;" if priority else ""
+        before = f'<a href="/admin/events?{prefix}page={page - 1}">上一页</a>' if page > 1 else ""
+        after = f'<a href="/admin/events?{prefix}page={page + 1}">下一页</a>' if page < last_page else ""
+        pagination = (f'<nav class="event-pages" aria-label="事件分页">{before}'
+                      f'<span class="muted">第 {page} / {last_page} 页</span>{after}</nav>')
+    return f"""<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>P0 / P1 事件 · TrendRadar 管理</title><style>{STYLE}</style></head>
+<body class="event-index"><header class="top"><div class="bar">
+<a class="brand" href="/admin/"><span class="brand-mark" aria-hidden="true"></span>TrendRadar <small>管理</small></a>
+<a href="/admin/#overview">返回总览</a></div></header>
+<main><h1>P0 / P1 事件</h1><p class="muted">保留期内的重点事件 · 北京时间</p>
+<nav class="event-filters" aria-label="按优先级筛选">{filters}</nav>
+<section aria-label="事件列表" class="panel">{body}</section>{pagination}</main></body></html>""".encode()
+
 
 
 def render_sources(snapshot):
