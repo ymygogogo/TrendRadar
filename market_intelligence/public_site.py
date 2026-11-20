@@ -20,7 +20,7 @@ from trendradar.report.rss_views import rss_groups
 
 from .chinese_reference import chinese_headline, headline_from_source, translatable_headline
 from .crawl_filter import blocked_titles
-from .digests import REGION_LABELS, digest_url, region_summary, safe_url
+from .digests import DIRECTIONS_ZH, REGION_LABELS, digest_url, region_summary, safe_url
 from .news_topics import NewsTopics, TOPIC_LABELS
 from .ui_theme import THEME
 
@@ -136,12 +136,22 @@ small,.muted { color:var(--muted); font-size:.85rem; }
 .brief-main h2 a { color:var(--ink); text-decoration:none; }
 .brief-main h2 a:hover { text-decoration:underline; }
 .digest-meta { font-size:.85rem; color:#a7c8da; }
-.brief-headlines { margin:.7rem 0 0; padding:0; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.65rem; list-style:none; }
-.brief-headlines li { border:1px solid var(--edge); border-radius:var(--radius); background:var(--surface); }
-.brief-headlines a { color:var(--ink); padding:.68rem .8rem; display:block; text-decoration:none; height:100%; }
-.brief-headlines a:hover { background:var(--surface-raised); border-radius:inherit; }
-.brief-headlines small { display:block; color:var(--accent); margin-bottom:.25rem; font-weight:580; }
-.brief-headlines span { display:block; font-weight:650; }
+.brief-outlook { margin-top:1.35rem; }
+.outlook-heading { display:flex; align-items:baseline; justify-content:space-between; gap:.4rem .8rem; flex-wrap:wrap; }
+.outlook-heading h2 { font-size:1.24rem; }
+.brief-headlines { margin:.65rem 0 0; padding:0; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.65rem; list-style:none; }
+.brief-headlines li { min-width:0; border:1px solid var(--edge); border-top:2px solid #3d657b;
+  border-radius:var(--radius); background:var(--surface); padding:.8rem .95rem; }
+.brief-headlines h3 { font-size:1rem; margin:.16rem 0 .45rem; line-height:1.45; overflow-wrap:anywhere; }
+.brief-headlines h3 a { color:var(--ink); text-decoration:none; }
+.brief-headlines h3 a:hover { text-decoration:underline; }
+.brief-headlines small { display:block; color:var(--accent); font-weight:600; }
+.brief-headlines dl { margin:0; display:grid; gap:.3rem; }
+.brief-headlines dt { color:var(--muted); font-size:.76rem; font-weight:620; }
+.brief-headlines dd { margin:0; color:var(--ink); font-size:.86rem; line-height:1.48; overflow-wrap:anywhere; }
+.outlook-research { border-top:1px solid var(--edge-soft); padding-top:.43rem; margin-top:.15rem; }
+.outlook-research dt { color:#abdeeb; }
+.brief-headlines .outlook-watch { color:var(--muted); }
 .brief-main .actions { margin-top:.5rem; }
 .topic-card,.history { border:1px solid var(--edge); border-radius:var(--radius); background:var(--surface); }
 .button-link { display:inline-flex; align-items:center; padding:.45rem .8rem; min-height:2.65rem; border-radius:.45rem;
@@ -187,13 +197,9 @@ button[aria-pressed=true] { border-color:var(--accent); background:var(--accent-
   .radar-sweep { inset-inline-end:-3.75rem; }
   .radar-visual { width:100%; object-position:60% 50%; }
   .news-hero::before { background:linear-gradient(90deg,#091723f5 3%,#091723ba 52%,#09172333 100%); }
-  .brief-headlines { gap:0; background:var(--surface); border:1px solid var(--edge); border-radius:var(--radius); }
-  .brief-headlines li { border:0; border-radius:0; background:transparent; }
-  .brief-headlines li + li { border-top:1px solid var(--edge-soft); }
-  .brief-headlines a { padding:.53rem .68rem; }
-  .brief-headlines a:has(small) { display:grid; grid-template-columns:4.5rem minmax(0,1fr); align-items:baseline; gap:.38rem; }
-  .brief-headlines small { margin:0; font-size:.74rem; }
-  .brief-headlines span { font-size:.9rem; }
+  .brief-headlines { gap:.48rem; }
+  .brief-headlines li { padding:.68rem .75rem; }
+  .brief-headlines h3 { font-size:.95rem; }
   .scope { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
   .scope button { text-align:start; }
   header nav { gap:.15rem; }
@@ -247,6 +253,25 @@ def latest_published_edition(db):
     return json.loads(row[0]) if row else None
 
 
+def _outlook_card(event, href):
+    def preview(value, limit):
+        text = " ".join((value or "").split())
+        return escape(text if len(text) <= limit else text[:limit].rstrip() + "…")
+
+    label = " · ".join(filter(None, (REGION_LABELS.get(event.get("edition_region")),
+                                    TOPIC_LABELS.get(event.get("topic")))))
+    meta = f'<small>{escape(label)}</small>' if label else ""
+    summary = preview(event.get("summary"), 145)
+    fact = f'<div><dt>事件摘要</dt><dd>{summary}</dd></div>' if summary else ""
+    direction = DIRECTIONS_ZH.get(event.get("direction"), "影响不明确")
+    impact = preview(event.get("impact"), 155) or "暂无足够证据判断具体影响。"
+    signals = [signal for signal in (event.get("follow_up_signals") or []) if "://" not in signal]
+    signal = preview(signals[0], 80) if signals else ""
+    watch = f'<div><dt>后续观察</dt><dd class="outlook-watch">{signal}</dd></div>' if signal else ""
+    return (f'<li>{meta}<h3><a href="{href}">{escape(event["title"])}</a></h3><dl>{fact}'
+            f'<div class="outlook-research"><dt>AI 研判 · {direction}</dt><dd>{impact}</dd></div>{watch}</dl></li>')
+
+
 def _latest_brief(brief, now):
     collected = f'<p id="collected" class="muted">本轮采集 <time datetime="{now.isoformat()}">{now:%m-%d %H:%M}</time> · 北京时间</p>'
     heading = f'{collected}<h1>全球要闻</h1>'
@@ -266,19 +291,16 @@ def _latest_brief(brief, now):
         if len(choices) == 3:
             break
         choices.add(index)
-    items = []
-    for i in sorted(choices):
-        event = events[i]
-        label = " · ".join(filter(None, (REGION_LABELS.get(event.get("edition_region")),
-                                        TOPIC_LABELS.get(event.get("topic")))))
-        meta = f'<small>{escape(label)}</small>' if label else ""
-        items.append(f'<li><a href="{path}#event-{i + 1}">{meta}<span>{escape(event["title"])}</span></a></li>')
+    items = "".join(_outlook_card(events[i], f"{path}#event-{i + 1}") for i in sorted(choices))
+    outlook = (f'<section class="brief-outlook" aria-labelledby="outlook-title"><div class="outlook-heading">'
+               f'<h2 id="outlook-title">本期 AI 要点</h2><a href="{path}">查看全部 {len(events)} 条</a></div>'
+               f'<ul class="brief-headlines">{items}</ul></section>') if items else ""
     return f"""<section class="news-hero" aria-label="最新简报">{image}
 <div class="brief-main">{heading}<p class="digest-meta">最新简报 · {details}</p>
 <h2><a href="{path}">{escape(brief["title"])}</a></h2>
 <div class="actions"><a class="button-link" href="{path}">阅读整期</a>
 <a href="/digests/index.html">浏览历史</a></div></div></section>
-<ul class="brief-headlines" aria-label="本期重点">{"".join(items)}</ul>"""
+{outlook}"""
 
 
 def today_groups(db, settings, now):

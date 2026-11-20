@@ -114,6 +114,7 @@ def _event_details(row, data, tier, topic, signals, companies, sources):
         "source": sources[0]["url"] if sources else "", "sources": sources,
         "direction": data.get("direction", "unclear"),
         "impact": data.get("impact_mechanism", ""),
+        "follow_up_signals": data.get("follow_up_signals", [])[:2],
         "concepts": concepts[:6], "sectors": sectors, "companies": stocks,
     }
 
